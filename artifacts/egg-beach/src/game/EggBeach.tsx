@@ -1,4 +1,8 @@
 import { useEffect, useRef, useCallback } from "react";
+import lolaSpriteSrc from "../assets/lola_sprite.png";
+
+// Module-level sprite — set once on image load
+let _lolaSprite: HTMLImageElement | null = null;
 
 // =====================================================================
 // TYPES
@@ -122,95 +126,60 @@ function drawLola(
 
   const scaleY = crouching ? 0.7 : 1;
   ctx.scale(1, scaleY);
-  const oy = crouching ? 10 : 0; // offsetY
+  const oy = crouching ? 10 : 0;
 
-  // Red hurt flash overlay
-  if (hurtFlash > 0) {
-    ctx.globalAlpha = Math.min(hurtFlash * 2, 0.65);
-    ctx.fillStyle = "#ff2200";
-    ctx.fillRect(-14, oy - 32, 28, 50);
-    ctx.globalAlpha = 1;
+  if (_lolaSprite) {
+    // --- Sprite path: daughter's drawing ---
+    // Sprite is 160×275; map to local coords with feet at y=34
+    const sw = 52, sh = 90;
+    const sx = -sw / 2, sy = 34 - sh + oy * 0.5;
+    ctx.drawImage(_lolaSprite, sx, sy, sw, sh);
+    // Red hurt flash overlay clipped to sprite shape
+    if (hurtFlash > 0) {
+      ctx.save();
+      ctx.globalCompositeOperation = "source-atop";
+      ctx.globalAlpha = Math.min(hurtFlash * 2, 0.55);
+      ctx.fillStyle = "#ff2200";
+      ctx.fillRect(sx, sy, sw, sh);
+      ctx.restore();
+    }
+  } else {
+    // --- Procedural fallback ---
+    if (hurtFlash > 0) {
+      ctx.globalAlpha = Math.min(hurtFlash * 2, 0.65);
+      ctx.fillStyle = "#ff2200";
+      ctx.fillRect(-14, oy - 32, 28, 50);
+      ctx.globalAlpha = 1;
+    }
+    const legBob = Math.sin(frame * 0.8) * 3;
+    ctx.fillStyle = "#5533bb"; ctx.fillRect(-7, oy + 22, 6, 8 + legBob); ctx.fillRect(2, oy + 22, 6, 8 - legBob);
+    ctx.fillStyle = "#2255dd"; ctx.fillRect(-9, oy + 28, 8, 6); ctx.fillRect(2, oy + 28, 8, 6);
+    ctx.fillStyle = "#4477ff"; ctx.fillRect(-9, oy + 28, 8, 2); ctx.fillRect(2, oy + 28, 8, 2);
+    ctx.fillStyle = "#8844ee";
+    ctx.beginPath(); ctx.moveTo(-10, oy + 14); ctx.lineTo(10, oy + 14); ctx.lineTo(13, oy + 27); ctx.lineTo(-13, oy + 27); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#aa66ff"; ctx.fillRect(-8, oy + 14, 16, 4);
+    ctx.fillStyle = "#9955ff"; ctx.fillRect(-8, oy - 2, 16, 18);
+    ctx.fillStyle = "#bb77ff"; ctx.fillRect(-8, oy - 2, 16, 4);
+    const armBob = Math.sin(frame * 0.8) * 4;
+    ctx.fillStyle = "#e09050"; ctx.fillRect(-13, oy + 1 + armBob, 6, 11); ctx.fillRect(7, oy + 1 - armBob, 6, 11);
+    ctx.fillStyle = "#e09050"; ctx.fillRect(-4, oy - 8, 8, 8);
+    ctx.beginPath(); ctx.ellipse(0, oy - 15, 10, 11, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "rgba(220,100,80,0.4)";
+    ctx.beginPath(); ctx.ellipse(-6, oy - 13, 4, 3, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(6, oy - 13, 4, 3, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#ffdd11"; ctx.beginPath(); ctx.ellipse(0, oy - 22, 11, 8, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillRect(-11, oy - 22, 4, 13); ctx.fillRect(7, oy - 22, 4, 13);
+    ctx.fillStyle = "#ffe84a"; ctx.fillRect(-11, oy - 22, 2, 6); ctx.fillRect(9, oy - 22, 2, 6);
+    ctx.fillStyle = "#fff"; ctx.fillRect(-6, oy - 18, 5, 5); ctx.fillRect(2, oy - 18, 5, 5);
+    ctx.fillStyle = "#2255ee"; ctx.fillRect(-5, oy - 17, 3, 3); ctx.fillRect(3, oy - 17, 3, 3);
+    ctx.fillStyle = "#000"; ctx.fillRect(-5, oy - 17, 1, 1); ctx.fillRect(3, oy - 17, 1, 1);
+    ctx.fillStyle = "#fff"; ctx.fillRect(-4, oy - 17, 1, 1); ctx.fillRect(4, oy - 17, 1, 1);
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
+      ctx.fillStyle = "#ff7700"; ctx.beginPath(); ctx.arc(-3 + Math.cos(a) * 4, oy - 29 + Math.sin(a) * 4, 2.5, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.fillStyle = "#ffcc00"; ctx.beginPath(); ctx.arc(-3, oy - 29, 2.5, 0, Math.PI * 2); ctx.fill();
   }
-
-  const legBob = Math.sin(frame * 0.8) * 3;
-  // Legs
-  ctx.fillStyle = "#5533bb";
-  ctx.fillRect(-7, oy + 22, 6, 8 + legBob);
-  ctx.fillRect(2, oy + 22, 6, 8 - legBob);
-  // Blue shoes
-  ctx.fillStyle = "#2255dd";
-  ctx.fillRect(-9, oy + 28, 8, 6);
-  ctx.fillRect(2, oy + 28, 8, 6);
-  // Shoe toe highlight
-  ctx.fillStyle = "#4477ff";
-  ctx.fillRect(-9, oy + 28, 8, 2);
-  ctx.fillRect(2, oy + 28, 8, 2);
-  // Skirt
-  ctx.fillStyle = "#8844ee";
-  ctx.beginPath();
-  ctx.moveTo(-10, oy + 14); ctx.lineTo(10, oy + 14);
-  ctx.lineTo(13, oy + 27); ctx.lineTo(-13, oy + 27);
-  ctx.closePath(); ctx.fill();
-  // Skirt highlight
-  ctx.fillStyle = "#aa66ff";
-  ctx.fillRect(-8, oy + 14, 16, 4);
-  // Body / top
-  ctx.fillStyle = "#9955ff";
-  ctx.fillRect(-8, oy - 2, 16, 18);
-  // Top highlight
-  ctx.fillStyle = "#bb77ff";
-  ctx.fillRect(-8, oy - 2, 16, 4);
-  // Arms
-  const armBob = Math.sin(frame * 0.8) * 4;
-  ctx.fillStyle = "#e09050";
-  ctx.fillRect(-13, oy + 1 + armBob, 6, 11);
-  ctx.fillRect(7, oy + 1 - armBob, 6, 11);
-  // Neck
-  ctx.fillStyle = "#e09050";
-  ctx.fillRect(-4, oy - 8, 8, 8);
-  // Head
-  ctx.fillStyle = "#e09050";
-  ctx.beginPath();
-  ctx.ellipse(0, oy - 15, 10, 11, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // Blush
-  ctx.fillStyle = "rgba(220,100,80,0.4)";
-  ctx.beginPath(); ctx.ellipse(-6, oy - 13, 4, 3, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.ellipse(6, oy - 13, 4, 3, 0, 0, Math.PI * 2); ctx.fill();
-  // Hair (bright golden)
-  ctx.fillStyle = "#ffdd11";
-  ctx.beginPath();
-  ctx.ellipse(0, oy - 22, 11, 8, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // Hair sides with shine
-  ctx.fillStyle = "#ffdd11";
-  ctx.fillRect(-11, oy - 22, 4, 13);
-  ctx.fillRect(7, oy - 22, 4, 13);
-  ctx.fillStyle = "#ffe84a";
-  ctx.fillRect(-11, oy - 22, 2, 6);
-  ctx.fillRect(9, oy - 22, 2, 6);
-  // Eyes (blue)
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(-6, oy - 18, 5, 5);
-  ctx.fillRect(2, oy - 18, 5, 5);
-  ctx.fillStyle = "#2255ee";
-  ctx.fillRect(-5, oy - 17, 3, 3);
-  ctx.fillRect(3, oy - 17, 3, 3);
-  ctx.fillStyle = "#000";
-  ctx.fillRect(-5, oy - 17, 1, 1);
-  ctx.fillRect(3, oy - 17, 1, 1);
-  // Eye sparkle
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(-4, oy - 17, 1, 1);
-  ctx.fillRect(4, oy - 17, 1, 1);
-  // Orange flower
-  for (let i = 0; i < 5; i++) {
-    const a = (i / 5) * Math.PI * 2;
-    ctx.fillStyle = "#ff7700";
-    ctx.beginPath(); ctx.arc(-3 + Math.cos(a) * 4, oy - 29 + Math.sin(a) * 4, 2.5, 0, Math.PI * 2); ctx.fill();
-  }
-  ctx.fillStyle = "#ffcc00";
-  ctx.beginPath(); ctx.arc(-3, oy - 29, 2.5, 0, Math.PI * 2); ctx.fill();
 
   ctx.restore();
 }
@@ -1722,6 +1691,13 @@ export default function EggBeach() {
     },
     onTouchEnd: (e: React.TouchEvent) => { e.preventDefault(); touchRef.current[key] = false; },
   });
+
+  // Load Lola's hand-drawn sprite once on mount
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => { _lolaSprite = img; };
+    img.src = lolaSpriteSrc;
+  }, []);
 
   const handleCanvasTap = () => {
     const gs = gsRef.current!;
