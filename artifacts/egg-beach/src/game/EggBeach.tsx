@@ -1157,7 +1157,7 @@ function initLevel(level: number, gs: GameStateData) {
     for (let i = 0; i < 9; i++) gs.jellyfish.push({ x: 380 + i * 510, startY: 140 + Math.random() * 160, phase: Math.random() * Math.PI * 2, speed: 0.75 + Math.random() * 0.6 });
   }
   if (level === 3) {
-    for (let i = 0; i < 11; i++) gs.branches.push({ x: 500 + i * 400, y: GROUND_Y - 110 - Math.random() * 70, w: 80 + Math.random() * 60 });
+    for (let i = 0; i < 11; i++) gs.branches.push({ x: 500 + i * 400, y: GROUND_Y - 70 - Math.random() * 12, w: 80 + Math.random() * 60 });
     for (let i = 0; i < 16; i++) gs.roots.push({ x: 400 + i * 290 });
     // Pre-place acorns that bounce along ground
     for (let i = 0; i < 14; i++) {
@@ -1375,7 +1375,7 @@ export default function EggBeach() {
         if (egg.collected) continue;
         egg.bobOffset += 0.05 * dt;
         const esX = egg.x - gs.cameraX;
-        if (rectsOverlap(p.x - gs.cameraX - 10, p.y - 38, 20, 38, esX - 9, egg.y - 12, 18, 24)) {
+        if (rectsOverlap(p.x - gs.cameraX - 12, p.y - 28, 24, 60, esX - 9, egg.y - 12, 18, 24)) {
           egg.collected = true;
           gs.eggsCollected++;
           playSoundEggCollect();
@@ -1395,12 +1395,11 @@ export default function EggBeach() {
           crab.x += crab.speed * crab.dir * dt;
           if (crab.x < 60 || crab.x > LEVEL_LENGTH - 60) crab.dir *= -1;
           const cx = crab.x - gs.cameraX;
-          if (rectsOverlap(p.x - gs.cameraX - 10, p.y - 35, 20, 38, cx - 20, crab.y - 10, 40, 20)) loseLife();
+          if (rectsOverlap(p.x - gs.cameraX - 12, p.y - 28, 24, 60, cx - 20, crab.y - 10, 40, 20)) loseLife();
         }
         for (const wave of gs.waves) {
-          const wy = GROUND_Y + 28 + Math.sin(worldTime * 2 + wave.phase) * wave.amplitude;
           const wx = wave.x - gs.cameraX;
-          if (rectsOverlap(p.x - gs.cameraX - 10, p.y - 35, 20, 50, wx, wy, 132, CANVAS_H - wy)) loseLife();
+          if (rectsOverlap(p.x - gs.cameraX - 12, p.y - 28, 24, 60, wx, GROUND_Y - 35, 132, CANVAS_H)) loseLife();
         }
       }
 
@@ -1409,7 +1408,7 @@ export default function EggBeach() {
         for (const jf of gs.jellyfish) {
           const jy = jf.startY + Math.sin(worldTime * jf.speed + jf.phase) * 40;
           const jx = jf.x - gs.cameraX;
-          if (rectsOverlap(p.x - gs.cameraX - 10, p.y - 35, 20, 50, jx - 20, jy - 14, 40, 54)) loseLife();
+          if (rectsOverlap(p.x - gs.cameraX - 12, p.y - 28, 24, 60, jx - 18, jy - 14, 36, 54)) loseLife();
         }
       }
 
@@ -1417,11 +1416,12 @@ export default function EggBeach() {
       if (gs.level === 3) {
         for (const branch of gs.branches) {
           const bx = branch.x - gs.cameraX;
-          if (!p.crouching && rectsOverlap(p.x - gs.cameraX - 10, p.y - 38, 20, 38, bx, branch.y, branch.w, 15)) loseLife();
+          // Branch hits upper body (head area); crouching avoids it
+          if (!p.crouching && rectsOverlap(p.x - gs.cameraX - 10, p.y - 28, 20, 22, bx, branch.y, branch.w, 15)) loseLife();
         }
         for (const root of gs.roots) {
           const rx = root.x - gs.cameraX;
-          if (rectsOverlap(p.x - gs.cameraX - 10, p.y - 10, 20, 12, rx - 5, GROUND_Y - 24, 37, 24)) loseLife();
+          if (rectsOverlap(p.x - gs.cameraX - 12, p.y - 28, 24, 60, rx - 5, GROUND_Y - 24, 37, 24)) loseLife();
         }
         // Update acorns (bounce physics)
         for (const acorn of gs.acorns) {
@@ -1440,7 +1440,7 @@ export default function EggBeach() {
           // Collision
           const ax2 = acorn.x - gs.cameraX;
           if (ax2 > -20 && ax2 < CANVAS_W + 20) {
-            if (rectsOverlap(p.x - gs.cameraX - 10, p.y - 38, 20, 38, ax2 - 9, acorn.y - 9, 18, 18)) loseLife();
+            if (rectsOverlap(p.x - gs.cameraX - 12, p.y - 28, 24, 60, ax2 - 9, acorn.y - 9, 18, 18)) loseLife();
           }
         }
       }
@@ -1460,7 +1460,7 @@ export default function EggBeach() {
           ld.y += ld.vy * dt;
           if (ld.y > GROUND_Y + 20) return false; // remove on floor
           const ldSX = ld.x - gs.cameraX;
-          if (rectsOverlap(p.x - gs.cameraX - 10, p.y - 38, 20, 50, ldSX - 9, ld.y - 14, 18, 28)) {
+          if (rectsOverlap(p.x - gs.cameraX - 12, p.y - 28, 24, 60, ldSX - 9, ld.y - 14, 18, 28)) {
             loseLife();
             return false;
           }
