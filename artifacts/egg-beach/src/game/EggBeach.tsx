@@ -212,10 +212,6 @@ function drawDawn(ctx: CanvasRenderingContext2D, x: number, y: number, dir: numb
     const wingFlap = Math.sin(frame * 1.2) * 0.08;
     ctx.save();
     ctx.rotate(wingFlap);
-    ctx.fillStyle = "#f4f0e8";
-    ctx.beginPath(); ctx.ellipse(0, 4 + bodyBob, 13, 14, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = "#f8f4ee";
-    ctx.beginPath(); ctx.ellipse(1, -8 + bodyBob, 7, 7, 0, 0, Math.PI * 2); ctx.fill();
     ctx.drawImage(_dawnSprite, -dw / 2, -dh / 2 - 4 + bodyBob, dw, dh);
     ctx.restore();
   } else {
@@ -258,7 +254,8 @@ function drawEgg(ctx: CanvasRenderingContext2D, egg: Egg) {
   const glow = Math.sin(egg.bobOffset * 1.5) * 0.15 + 0.25;
 
   if (_eggSprite) {
-    const ew = 24, eh = 28;
+    const ew = 32, eh = 38;
+    ctx.globalAlpha = 1;
     ctx.drawImage(_eggSprite, egg.x - ew / 2, by - eh / 2, ew, eh);
   } else {
     const colors: Record<EggColor, [string, string]> = {
