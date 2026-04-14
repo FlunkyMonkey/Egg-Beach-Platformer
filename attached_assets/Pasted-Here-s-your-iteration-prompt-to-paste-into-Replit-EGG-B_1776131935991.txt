@@ -1,0 +1,40 @@
+Here’s your iteration prompt to paste into Replit:
+
+EGG BEACH — Iteration Update
+Please make the following changes to the existing Egg Beach game. Do not rebuild from scratch — update only what is specified below:
+
+🐔 Dawn
+Change Dawn’s sprite color from black to white. She should still have her red comb and yellow beak.
+
+🎨 Art Style
+Shift the overall visual style to be more Stardew Valley inspired — more vibrant, saturated colors, slightly more detailed pixel art with warmer lighting. Make the backgrounds richer and more colorful while keeping the same hand-drawn marker energy. Characters should feel charming and cozy.
+
+🥚 Egg Collection Banner
+Each time Lola collects an egg, display a temporary banner on screen showing how many eggs are remaining to collect. Example: “🥚 6 eggs remaining!” The banner should fade out after about 2 seconds. Style it as a cozy pixel font ribbon banner in the center of the screen.
+
+💔 Hurt Animation
+When Lola takes damage, trigger a visible hurt animation:
+	•	Lola briefly flashes red
+	•	A row of hearts appears floating above Lola showing her remaining lives (filled hearts = lives left)
+	•	The hearts fade out smoothly over about 2 seconds
+	•	This makes damage feel impactful and clear, especially for younger players
+
+🥚 Egg Effects
+Remove all egg power-up effects entirely. Eggs are now purely collectibles — Lola still needs 5 to catch Dawn, but collecting them no longer grants speed, jump, agility, resistance, or strength boosts. Simplify accordingly.
+
+🌋 Level 3 — Forest Update
+	•	Remove the volcano from Level 3 entirely
+	•	Replace the volcano obstacle with bouncing acorns that fall from the trees and bounce along the ground. Contact with an acorn costs a life. Draw them as small round brown pixel acorns with a little cap.
+	•	The level end condition remains the same — catch Dawn within 60 seconds
+
+🌋 New Episode 4 — The Volcano (New Level)
+Add a new Level 4 after the forest. This is a standalone episode:
+	•	Background: Dark dramatic sky, black volcanic rock ground, the volcano from the original storyboard art — a large black mountain with red lava streams running down it
+	•	Enemy: Lava raindrops fall from the sky randomly. They are red/orange teardrop shapes. Contact costs a life.
+	•	Story card before level: “Dawn has reached the volcano! The mountain is erupting — dodge the lava and catch her before it’s too late!”
+	•	Dawn behaves at her fastest and most erratic here
+	•	Same 60 second timer and 5 egg minimum to catch Dawn
+	•	Catching Dawn here triggers the Win Screen
+	•	Update the between-level story cards to account for the new 4-level structure
+
+That’s it — keep everything else exactly as it was. 🎮​​​​​​​​​​​​​​​​
