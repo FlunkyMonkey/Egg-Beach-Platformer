@@ -3,7 +3,7 @@ import { useEffect, useRef, useCallback } from "react";
 // =====================================================================
 // TYPES
 // =====================================================================
-type GameState = "START" | "STORY" | "PLAYING" | "GAME_OVER" | "WIN";
+type GameState = "START" | "HOW_TO_PLAY" | "STORY" | "PLAYING" | "GAME_OVER" | "WIN";
 type EggColor = "red" | "blue" | "green" | "yellow" | "purple";
 
 interface Egg {
@@ -117,8 +117,10 @@ function drawLola(
   frame: number, hurtFlash: number
 ) {
   ctx.save();
-  ctx.translate(x, y);
-  ctx.scale(facing, 1);
+  // Scale 1.5× anchored at feet (local y ≈ 34)
+  ctx.translate(x, y + 34);
+  ctx.scale(facing * 1.5, 1.5);
+  ctx.translate(0, -34);
 
   const scaleY = crouching ? 0.7 : 1;
   ctx.scale(1, scaleY);
@@ -217,8 +219,10 @@ function drawLola(
 
 function drawDawn(ctx: CanvasRenderingContext2D, x: number, y: number, dir: number, frame: number) {
   ctx.save();
-  ctx.translate(x, y);
-  ctx.scale(dir, 1);
+  // Scale 1.5× anchored at feet (local y ≈ 27)
+  ctx.translate(x, y + 27);
+  ctx.scale(dir * 1.5, 1.5);
+  ctx.translate(0, -27);
 
   const legBob = Math.sin(frame * 1.2) * 3;
   // Legs
@@ -427,6 +431,7 @@ function drawRoot(ctx: CanvasRenderingContext2D, rx: number, cameraX: number) {
 function drawAcorn(ctx: CanvasRenderingContext2D, x: number, y: number) {
   ctx.save();
   ctx.translate(x, y);
+  ctx.scale(1.5, 1.5);
   // Shadow
   ctx.fillStyle = "rgba(0,0,0,0.2)";
   ctx.beginPath(); ctx.ellipse(0, 10, 8, 3, 0, 0, Math.PI * 2); ctx.fill();
@@ -786,7 +791,7 @@ function drawBackground(
 // =====================================================================
 // HUD
 // =====================================================================
-function drawHUD(ctx: CanvasRenderingContext2D, lives: number, timer: number, eggsCollected: number, level: number) {
+function drawHUD(ctx: CanvasRenderingContext2D, lives: number, eggsCollected: number, level: number) {
   ctx.fillStyle = "rgba(0,0,0,0.6)";
   ctx.fillRect(0, 0, CANVAS_W, 40);
   // Bottom edge glow
@@ -826,24 +831,13 @@ function drawHUD(ctx: CanvasRenderingContext2D, lives: number, timer: number, eg
     ctx.restore();
   }
 
-  // Timer
-  const timeColor = timer <= 10 ? "#ff4444" : "#ffee88";
-  ctx.fillStyle = timeColor;
-  ctx.font = "bold 22px monospace";
+  // Level label (centered)
+  ctx.fillStyle = "rgba(255,255,255,0.55)";
+  ctx.font = "bold 13px monospace";
   ctx.textAlign = "center";
-  if (timer <= 10) {
-    ctx.shadowColor = "#ff0000";
-    ctx.shadowBlur = 8;
-  }
-  ctx.fillText(`${Math.ceil(timer)}s`, CANVAS_W / 2, 26);
-  ctx.shadowBlur = 0;
+  ctx.fillText(`LVL ${level}`, CANVAS_W / 2, 26);
 
-  // Level
-  ctx.fillStyle = "rgba(255,255,255,0.45)";
-  ctx.font = "10px monospace";
-  ctx.fillText(`LVL ${level}`, CANVAS_W / 2, 37);
-
-  // Eggs collected
+  // Eggs collected (right side)
   ctx.fillStyle = eggsCollected >= 5 ? "#55ff55" : "#ffffff";
   ctx.font = "bold 16px monospace";
   ctx.textAlign = "right";
@@ -986,6 +980,88 @@ function drawStoryCard(ctx: CanvasRenderingContext2D, level: number) {
   ctx.font = "bold 17px monospace";
   ctx.fillText("[ Tap / Press Enter to Start ]", CANVAS_W / 2, CANVAS_H - 28);
   ctx.textAlign = "left";
+}
+
+// =====================================================================
+// HOW TO PLAY SCREEN
+// =====================================================================
+function drawHowToPlay(ctx: CanvasRenderingContext2D) {
+  // Blue sky background matching beach level
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
+  skyGrad.addColorStop(0, "#33aaff");
+  skyGrad.addColorStop(0.6, "#88ddff");
+  skyGrad.addColorStop(1, "#cceeff");
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+  // Clouds
+  for (let i = 0; i < 4; i++) {
+    drawCloud(ctx, { x: 90 + i * 215, y: 45 + (i % 2) * 25, w: 85 + (i % 3) * 22 });
+  }
+
+  // Card background
+  ctx.fillStyle = "rgba(0,0,0,0.52)";
+  ctx.beginPath(); ctx.roundRect(50, 28, 700, 390, 16); ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.08)";
+  ctx.beginPath(); ctx.roundRect(50, 28, 700, 390, 16); ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.25)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.roundRect(50, 28, 700, 390, 16); ctx.stroke();
+
+  ctx.textAlign = "center";
+
+  // Title
+  ctx.fillStyle = "#ffee44";
+  ctx.font = "bold 38px monospace";
+  ctx.shadowColor = "#000"; ctx.shadowBlur = 6;
+  ctx.fillText("How To Play", CANVAS_W / 2, 80);
+  ctx.shadowBlur = 0;
+
+  // Tagline
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 15px monospace";
+  ctx.fillText("Collect all the eggs first to be able to catch Dawn!", CANVAS_W / 2, 112);
+
+  // Divider
+  ctx.strokeStyle = "rgba(255,255,255,0.3)";
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(90, 125); ctx.lineTo(710, 125); ctx.stroke();
+
+  // How to Move header
+  ctx.fillStyle = "#aaddff";
+  ctx.font = "bold 17px monospace";
+  ctx.fillText("How To Move", CANVAS_W / 2, 152);
+
+  // Desktop controls
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ffcc55";
+  ctx.font = "bold 14px monospace";
+  ctx.fillText("🖥  Desktop:", 100, 186);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "13px monospace";
+  ctx.fillText("A / D  or  ◀ ▶  —  Move left / right", 120, 210);
+  ctx.fillText("W  or  ▲  —  Jump  (double-jump supported!)", 120, 232);
+  ctx.fillText("S  or  ▼  —  Crouch / slow down", 120, 254);
+
+  // Mobile controls
+  ctx.fillStyle = "#ffcc55";
+  ctx.font = "bold 14px monospace";
+  ctx.fillText("📱  Mobile:", 100, 282);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "13px monospace";
+  ctx.fillText("◀ ▶  buttons  —  Move left / right", 120, 306);
+  ctx.fillText("▲  button  —  Jump  (tap twice for double-jump!)", 120, 328);
+  ctx.fillText("▼  button  —  Crouch / slow down", 120, 350);
+
+  // Prompt
+  const alpha = 0.5 + Math.sin(Date.now() * 0.003) * 0.5;
+  ctx.textAlign = "center";
+  ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+  ctx.font = "bold 17px monospace";
+  ctx.fillText("Tap to Continue  /  Press Enter to Continue", CANVAS_W / 2, CANVAS_H - 20);
+
+  ctx.textAlign = "left";
+  ctx.shadowBlur = 0;
 }
 
 // =====================================================================
@@ -1139,7 +1215,6 @@ function initLevel(level: number, gs: GameStateData) {
   gs.dawn.frame = 0; gs.dawn.frameTime = 0; gs.dawn.reverseCooldown = 0;
 
   gs.cameraX = 0;
-  gs.timer = TIMER_SECONDS;
   gs.eggsCollected = 0;
   gs.hurtFlash = 0;
   gs.hurtHearts = [];
@@ -1177,10 +1252,10 @@ function initLevel(level: number, gs: GameStateData) {
   if (level === 3) {
     for (let i = 0; i < 11; i++) gs.branches.push({ x: 500 + i * 400, y: GROUND_Y - 70 - Math.random() * 12, w: 80 + Math.random() * 60 });
     for (let i = 0; i < 16; i++) gs.roots.push({ x: 400 + i * 290 });
-    // Pre-place acorns that bounce along ground
-    for (let i = 0; i < 14; i++) {
-      const ax = 400 + i * 340 + Math.random() * 100;
-      gs.acorns.push({ x: ax, y: GROUND_Y - 60 - Math.random() * 100, vx: (Math.random() - 0.5) * 2.5, vy: 0 });
+    // Pre-place acorns — wider spacing, lazier speed
+    for (let i = 0; i < 10; i++) {
+      const ax = 500 + i * 480 + Math.random() * 80;
+      gs.acorns.push({ x: ax, y: GROUND_Y - 60 - Math.random() * 100, vx: (Math.random() - 0.5) * 1.5, vy: 0 });
     }
   }
   if (level === 4) {
@@ -1228,7 +1303,7 @@ export default function EggBeach() {
 
   const startGame = useCallback(() => {
     const gs = gsRef.current!;
-    gs.state = "STORY"; gs.storyTimer = 0;
+    gs.state = "HOW_TO_PLAY";
   }, []);
 
   const startLevel = useCallback(() => {
@@ -1306,10 +1381,6 @@ export default function EggBeach() {
       const touch = touchRef.current;
       const p = gs.player;
       const dawn = gs.dawn;
-
-      // Timer
-      gs.timer -= dt / 60;
-      if (gs.timer <= 0) gs.state = "GAME_OVER";
 
       // Hurt flash decay
       if (gs.hurtFlash > 0) gs.hurtFlash = Math.max(0, gs.hurtFlash - dt * 0.04);
@@ -1424,26 +1495,34 @@ export default function EggBeach() {
         }
       }
 
-      // L3 obstacles: branches + roots + acorns (NO volcano)
+      // L3 obstacles: branches (platforms) + roots + acorns
       if (gs.level === 3) {
+        // Branches are platforms — land on top, no damage
         for (const branch of gs.branches) {
-          const bx = branch.x - gs.cameraX;
-          // Branch hits upper body (head area); crouching avoids it
-          if (!p.crouching && rectsOverlap(p.x - gs.cameraX - 10, p.y - 28, 20, 22, bx, branch.y, branch.w, 15)) loseLife();
+          const pWorldX = p.x;
+          if (pWorldX + 10 > branch.x && pWorldX - 10 < branch.x + branch.w) {
+            const playerFeetY = p.y + 32;
+            if (p.vy >= 0 && playerFeetY >= branch.y && playerFeetY <= branch.y + 22) {
+              p.y = branch.y - 32;
+              p.vy = 0;
+              p.onGround = true;
+              p.jumpsLeft = 2;
+            }
+          }
         }
         for (const root of gs.roots) {
           const rx = root.x - gs.cameraX;
           if (rectsOverlap(p.x - gs.cameraX - 12, p.y - 28, 24, 60, rx - 5, GROUND_Y - 24, 37, 24)) loseLife();
         }
-        // Update acorns (bounce physics)
+        // Update acorns (bounce physics — lazy fall)
         for (const acorn of gs.acorns) {
-          acorn.vy += GRAVITY * 0.8 * dt;
+          acorn.vy += GRAVITY * 0.48 * dt;
           acorn.x += acorn.vx * dt;
           acorn.y += acorn.vy * dt;
           if (acorn.y >= GROUND_Y - 15) {
             acorn.y = GROUND_Y - 15;
             acorn.vy *= -0.65;
-            if (Math.abs(acorn.vy) < 1) acorn.vy = -(2 + Math.random() * 2);
+            if (Math.abs(acorn.vy) < 0.6) acorn.vy = -(1.2 + Math.random() * 1.2);
             acorn.vx += (Math.random() - 0.5) * 0.5;
           }
           // Keep in world
@@ -1486,6 +1565,8 @@ export default function EggBeach() {
 
     if (gs.state === "START") {
       drawStartScreen(ctx, gs.lolaIdleFrame);
+    } else if (gs.state === "HOW_TO_PLAY") {
+      drawHowToPlay(ctx);
     } else if (gs.state === "STORY") {
       drawStoryCard(ctx, gs.level);
     } else if (gs.state === "GAME_OVER") {
@@ -1558,7 +1639,7 @@ export default function EggBeach() {
       });
 
       // HUD
-      drawHUD(ctx, gs.lives, gs.timer, gs.eggsCollected, gs.level);
+      drawHUD(ctx, gs.lives, gs.eggsCollected, gs.level);
 
       // Egg collection banner
       if (gs.eggBanner) drawEggBanner(ctx, gs.eggBanner);
@@ -1587,6 +1668,7 @@ export default function EggBeach() {
       const gs = gsRef.current!;
       if (k === "Enter" || k === " ") {
         if (gs.state === "START") startGame();
+        else if (gs.state === "HOW_TO_PLAY") { gs.state = "STORY"; gs.storyTimer = 0; }
         else if (gs.state === "STORY") startLevel();
         else if (gs.state === "GAME_OVER") resetGame();
         else if (gs.state === "WIN") resetGame();
@@ -1634,6 +1716,7 @@ export default function EggBeach() {
         justPressedRef.current.jump = true;
         const gs = gsRef.current!;
         if (gs.state === "START") startGame();
+        else if (gs.state === "HOW_TO_PLAY") { gs.state = "STORY"; gs.storyTimer = 0; }
         else if (gs.state === "STORY") startLevel();
         else if (gs.state === "GAME_OVER") resetGame();
         else if (gs.state === "WIN") resetGame();
@@ -1645,6 +1728,7 @@ export default function EggBeach() {
   const handleCanvasTap = () => {
     const gs = gsRef.current!;
     if (gs.state === "START") startGame();
+    else if (gs.state === "HOW_TO_PLAY") { gs.state = "STORY"; gs.storyTimer = 0; }
     else if (gs.state === "STORY") startLevel();
     else if (gs.state === "GAME_OVER") resetGame();
     else if (gs.state === "WIN") resetGame();
