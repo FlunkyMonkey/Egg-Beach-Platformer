@@ -1,0 +1,138 @@
+REPLIT PROMPT — "Egg Beach" 🥚🏖️
+
+Build a 2D side-scrolling platformer game called "Egg Beach" using HTML5 Canvas and vanilla JavaScript (no external game libraries). The game must be fully playable on both desktop (WASD controls) and mobile iOS (touch controls). Here are the complete specifications:
+
+🎨 Visual Style
+
+Characters (Lola & Dawn): Pixel art sprites drawn programmatically on canvas.
+Lola: A pixel art girl with blonde hair, blue eyes, orange skin, purple top, purple skirt, blue shoes, and a small orange flower on her head (see pixel art style reference).
+Dawn: A pixel art black chicken with a red comb and small yellow beak.
+Backgrounds: Flat illustrated style resembling hand-drawn marker art with horizontal color bands. Each level has its own background:
+
+Level 1 (Beach): Light blue sky with white puffy clouds, a navy blue ocean band, yellow sandy ground with an orange/brown stripe.
+Level 2 (Underwater): Deep blue background, sandy seafloor, coral and seaweed decorations in red/green.
+Level 3 (Forest): Light blue sky, dense wall of tall brown tree trunks with thick green canopy across the top, yellow/green ground.
+
+
+UI: Clean pixel font for all text. Score bar at top showing: eggs collected, timer countdown, lives remaining (as small egg icons).
+
+
+🗺️ Game Structure
+Start Screen
+
+Title: "Egg Beach" in large bold marker-style font
+Blue horizontal line background texture
+"Tap to Start" or "Press Enter" prompt
+Simple animated Lola sprite standing idle
+
+Between Level Story Cards
+Display a full-screen illustrated card with story text before each level:
+
+Before Level 1: "Lola loves eggs. Dawn the chicken has the best eggs on the beach. But Dawn won't share — she runs! Chase her down before she reaches the volcano!"
+Before Level 2: "Dawn fled into the sea! Lola dives in after her, dodging jellyfish through the waves..."
+Before Level 3: "Dawn emerges in the forest, sprinting for the volcano! Lola must catch her NOW before it's too late!"
+Win Screen: "Lola catches Dawn just in time! The eggs are safe." with large "YOU WIN!" text and a drawing of a small brown barn/house with green grass.
+
+
+🎮 Controls
+
+Desktop: WASD to move and jump (W = jump)
+Mobile: On-screen touch buttons: Left arrow, Right arrow, Jump button (up arrow), displayed at bottom of screen
+Double jump is supported — Lola can jump a second time while airborne
+
+
+👧 Lola — Player Character
+
+Moves left and right, jumps, and double jumps
+Default speed: Slightly faster than Dawn's starting speed (tense from the start)
+5 lives — shown as egg icons in the HUD. Losing all 5 = full game reset to Start Screen
+Lola must collect a minimum of 5 eggs before she is "strong enough" to catch Dawn. If she touches Dawn with fewer than 5 eggs, nothing happens.
+Catching Dawn (touching her with 5+ eggs collected) = level complete
+
+
+🐔 Dawn — The Chicken
+
+Runs ahead of Lola, frequently going off-screen
+An arrow indicator always points toward Dawn's position when she is off-screen
+Dawn's behavior each level:
+
+Level 1: Moderate speed, occasional direction change
+Level 2: Faster, jumps and dodges more
+Level 3: Fastest, aggressive dodging and direction changes
+
+
+Dawn randomly drops colored eggs on the ground as she runs (10 eggs per level)
+Dawn can jump, dodge left/right, and reverse direction
+
+
+🥚 Egg Power-Ups
+Dawn drops 10 eggs per level, randomly placed on the ground as she runs. Each egg color grants a power-up to Lola that lasts 10 seconds:
+ColorEffect🔴 RedSpeed boost🔵 BlueHigher jump🟢 GreenStronger (can catch Dawn from slightly farther)🟡 YellowMore agile (faster direction changes)🟣 PurpleDamage resistance (next obstacle hit doesn't cost a life)
+Eggs are drawn as simple pixel oval shapes in their respective colors with a shine dot.
+
+⏱️ Timer & Lose Conditions
+
+60 second timer per level, displayed in the HUD
+If timer runs out: Game Over — return to Start Screen
+If Lola loses all 5 lives: Game Over — return to Start Screen
+Lava at the end of Level 3 (right side of screen, visually a black volcano with red lava streams) — touching lava costs a life immediately
+
+
+🏖️ Level 1 — The Beach
+
+Background: Blue sky, white clouds, navy ocean band, yellow sand, orange ground stripe
+Scrolling: Continuous left-to-right
+Obstacle: Ocean waves that periodically surge up from the bottom of the screen. Drawn as dark blue curved wave shapes. Contact costs a life.
+Platform: Flat sandy ground, mostly even with small bumps
+Crabs walk along the ground as minor obstacles — contact costs a life. Drawn as simple red pixel crabs.
+
+
+🌊 Level 2 — Underwater
+
+Background: Deep blue, sandy floor, coral/seaweed decorations
+Movement: Lola can both walk on the seafloor AND swim (floaty jump physics — slower fall speed)
+Obstacle: Jellyfish float up and down in the water column. Drawn as simple purple/pink dome shapes with trailing tentacles. Contact costs a life.
+No air meter — Lola can breathe underwater freely
+
+
+🌲 Level 3 — The Forest
+
+Background: Dense brown tree trunks, thick green canopy, yellow-green ground
+Obstacles:
+
+Tree roots on the ground to jump over
+Low-hanging branches to duck under (add a crouch mechanic — S key / swipe down on mobile)
+Volcano at the far right end of the level — drawn as a black mountain with red lava streams. Reaching the volcano without catching Dawn = Game Over.
+
+
+Flowers scattered on the ground (red, green, blue pixel flowers matching the storyboard art)
+
+
+📊 HUD (Heads Up Display)
+Display at the top of the screen at all times:
+
+Left: Row of 5 egg icons representing lives (filled = alive, empty = lost)
+Center: Countdown timer (60 → 0) in large pixel font
+Right: Eggs collected counter (e.g., "🥚 3/10") — turns green when 5+ collected
+
+
+🏗️ Technical Requirements
+
+Pure HTML5 Canvas + vanilla JavaScript, single index.html file
+All sprites drawn programmatically (no external image assets required)
+60fps game loop using requestAnimationFrame
+Responsive canvas — scales to fill the screen on both mobile and desktop
+Touch events for mobile: touchstart, touchmove, touchend
+Collision detection for: eggs, obstacles, Dawn, lava, level boundaries
+Game states: START, STORY, PLAYING, GAME_OVER, WIN
+Parallax scrolling background (foreground elements scroll faster than background)
+Dawn's off-screen arrow indicator updates in real time
+
+
+🎵 Audio
+
+Placeholder functions for sound effects (egg collect, jump, life lost, level complete) — leave as empty functions with comments so sounds can be added later
+No background music for now
+
+
+Build the complete game in a single index.html file. Make it fun, colorful, and charming — matching the energy of a hand-drawn game made by a kid and their parent. 🎨
