@@ -1397,10 +1397,7 @@ export default function EggBeach() {
           const cx = crab.x - gs.cameraX;
           if (rectsOverlap(p.x - gs.cameraX - 12, p.y - 28, 24, 60, cx - 20, crab.y - 10, 40, 20)) loseLife();
         }
-        for (const wave of gs.waves) {
-          const wx = wave.x - gs.cameraX;
-          if (rectsOverlap(p.x - gs.cameraX - 12, p.y - 28, 24, 60, wx, GROUND_Y - 35, 132, CANVAS_H)) loseLife();
-        }
+        // Waves are visual-only; crabs are the L1 hazard
       }
 
       // L2 obstacles
