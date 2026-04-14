@@ -793,19 +793,37 @@ function drawHUD(ctx: CanvasRenderingContext2D, lives: number, timer: number, eg
   ctx.fillStyle = "rgba(255,200,50,0.12)";
   ctx.fillRect(0, 38, CANVAS_W, 2);
 
-  // Lives as egg icons
-  for (let i = 0; i < 5; i++) {
-    const ex = 12 + i * 26;
-    ctx.fillStyle = i < lives ? "#f5c518" : "rgba(255,255,255,0.15)";
-    drawEggShape(ctx, ex, 20, 7, 10);
-    if (i < lives) {
-      ctx.fillStyle = "rgba(255,255,255,0.4)";
-      ctx.beginPath(); ctx.ellipse(ex - 2, 15, 3, 4, -0.3, 0, Math.PI * 2); ctx.fill();
+  // Lives as heart icons (10 total, 2 rows of 5)
+  for (let i = 0; i < 10; i++) {
+    const col = i % 5;
+    const row = Math.floor(i / 5);
+    const hx = 10 + col * 22;
+    const hy = 9 + row * 14;
+    const filled = i < lives;
+    ctx.save();
+    ctx.translate(hx, hy);
+    ctx.scale(0.75, 0.75);
+    if (filled) {
+      ctx.fillStyle = "#ff3355";
+      ctx.strokeStyle = "#cc1133";
     } else {
-      ctx.strokeStyle = "rgba(255,255,255,0.2)";
-      ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.ellipse(ex, 20, 7, 10, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = "rgba(255,100,120,0.18)";
+      ctx.strokeStyle = "rgba(255,100,120,0.35)";
     }
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, 5);
+    ctx.bezierCurveTo(-6, -2, -12, 0, -12, 5);
+    ctx.bezierCurveTo(-12, 11, 0, 16, 0, 16);
+    ctx.bezierCurveTo(0, 16, 12, 11, 12, 5);
+    ctx.bezierCurveTo(12, 0, 6, -2, 0, 5);
+    ctx.fill();
+    ctx.stroke();
+    if (filled) {
+      ctx.fillStyle = "rgba(255,180,190,0.45)";
+      ctx.beginPath(); ctx.ellipse(-4, 4, 3, 4, -0.3, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
   }
 
   // Timer
@@ -1150,7 +1168,7 @@ function initLevel(level: number, gs: GameStateData) {
   gs.roots = [];
 
   if (level === 1) {
-    for (let i = 0; i < 7; i++) gs.crabs.push({ x: 500 + i * 620, y: GROUND_Y - 10, dir: i % 2 === 0 ? 1 : -1, speed: 1.4 + Math.random() * 0.8 });
+    for (let i = 0; i < 7; i++) gs.crabs.push({ x: 500 + i * 750, y: GROUND_Y - 10, dir: i % 2 === 0 ? 1 : -1, speed: 0.85 + Math.random() * 0.45 });
     for (let i = 0; i < 8; i++) gs.waves.push({ x: 550 + i * 560, phase: Math.random() * Math.PI * 2, amplitude: 18 + Math.random() * 16 });
   }
   if (level === 2) {
@@ -1197,7 +1215,7 @@ export default function EggBeach() {
 
   function makeInitialState(): GameStateData {
     return {
-      state: "START", level: 1, lives: 5, timer: TIMER_SECONDS,
+      state: "START", level: 1, lives: 10, timer: TIMER_SECONDS,
       eggsCollected: 0, score: 0,
       player: { x: 100, y: GROUND_Y - 40, vx: 0, vy: 0, onGround: true, jumpsLeft: 2, crouching: false, facing: 1, frameTime: 0, frame: 0 },
       dawn: { x: 360, y: GROUND_Y - 35, vx: 2.8, vy: 0, onGround: true, dir: 1, frameTime: 0, frame: 0, reverseCooldown: 0 },
@@ -1245,18 +1263,15 @@ export default function EggBeach() {
     damageCooldownRef.current = 90; // ~1.5s cooldown
     // Hurt flash
     gs.hurtFlash = 1.0;
-    // Spawn floating hearts above player
+    // Spawn a single floating heart group anchored above the player
     const px = gs.player.x - gs.cameraX;
     const py = gs.player.y;
-    gs.hurtHearts = [];
-    for (let i = 0; i < 5; i++) {
-      gs.hurtHearts.push({
-        x: px - 50 + i * 25,
-        y: py - 50,
-        vy: -1.5 - Math.random() * 0.8,
-        alpha: 1.2, // >1 gives fade-in buffer
-      });
-    }
+    gs.hurtHearts = [{
+      x: px,
+      y: py - 55,
+      vy: -0.8,
+      alpha: 1.3,
+    }];
     if (gs.lives <= 0) {
       gs.state = "GAME_OVER";
     } else {
@@ -1532,8 +1547,13 @@ export default function EggBeach() {
 
       // Floating hearts (HUD-space, stays at screen position)
       gs.hurtHearts.forEach(h => {
-        for (let i = 0; i < 5; i++) {
-          drawFloatingHeart(ctx, h.x + i * 22, h.y, h.alpha, i < gs.lives);
+        // 2 rows of 5, centred above player
+        for (let i = 0; i < 10; i++) {
+          const col = i % 5;
+          const row = Math.floor(i / 5);
+          const hx = h.x - 55 + col * 24;
+          const hy = h.y + row * 18;
+          drawFloatingHeart(ctx, hx, hy, h.alpha, i < gs.lives);
         }
       });
 
