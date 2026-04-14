@@ -29,7 +29,6 @@ interface GameStateData {
   state: GameState;
   level: number;
   lives: number;
-  timer: number;
   eggsCollected: number;
   score: number;
   player: {
@@ -85,7 +84,6 @@ const UNDERWATER_GRAVITY = 0.18;
 const JUMP_FORCE = -13;
 const UNDERWATER_JUMP_FORCE = -7;
 const PLAYER_SPEED = 4.8;
-const TIMER_SECONDS = 60;
 const LEVEL_LENGTH = 5000;
 const EGG_COLORS: EggColor[] = ["red", "blue", "green", "yellow", "purple"];
 const MAX_LEVELS = 4;
@@ -1020,7 +1018,7 @@ function drawHowToPlay(ctx: CanvasRenderingContext2D) {
   // Tagline
   ctx.fillStyle = "#ffffff";
   ctx.font = "bold 15px monospace";
-  ctx.fillText("Collect all the eggs first to be able to catch Dawn!", CANVAS_W / 2, 112);
+  ctx.fillText("Collect 5 eggs first — then you can catch Dawn!", CANVAS_W / 2, 112);
 
   // Divider
   ctx.strokeStyle = "rgba(255,255,255,0.3)";
@@ -1290,7 +1288,7 @@ export default function EggBeach() {
 
   function makeInitialState(): GameStateData {
     return {
-      state: "START", level: 1, lives: 10, timer: TIMER_SECONDS,
+      state: "START", level: 1, lives: 10,
       eggsCollected: 0, score: 0,
       player: { x: 100, y: GROUND_Y - 40, vx: 0, vy: 0, onGround: true, jumpsLeft: 2, crouching: false, facing: 1, frameTime: 0, frame: 0 },
       dawn: { x: 360, y: GROUND_Y - 35, vx: 2.8, vy: 0, onGround: true, dir: 1, frameTime: 0, frame: 0, reverseCooldown: 0 },
