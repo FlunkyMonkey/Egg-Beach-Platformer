@@ -146,54 +146,24 @@ function drawLola(
 
   if (_lolaSprite) {
     const sw = 52, sh = 90;
-    const bodyH = sh * 0.78;
     const bodyY = 34 - sh + oy * 0.5;
-    const legBob = Math.sin(frame * 0.8) * 5;
-    const bodyTilt = Math.sin(frame * 0.8) * 0.04;
-
-    ctx.save();
-    ctx.rotate(bodyTilt);
-
-    const armSwing = Math.sin(frame * 0.8) * 12;
-    ctx.fillStyle = "#c07840";
-    ctx.save();
-    ctx.translate(-18, oy + 2);
-    ctx.rotate(armSwing * 0.06);
-    ctx.fillRect(-3, 0, 6, 14);
-    ctx.fillStyle = "#e09050";
-    ctx.beginPath(); ctx.arc(0, 14, 3.5, 0, Math.PI * 2); ctx.fill();
-    ctx.restore();
-    ctx.save();
-    ctx.translate(18, oy + 2);
-    ctx.rotate(-armSwing * 0.06);
-    ctx.fillStyle = "#c07840";
-    ctx.fillRect(-3, 0, 6, 14);
-    ctx.fillStyle = "#e09050";
-    ctx.beginPath(); ctx.arc(0, 14, 3.5, 0, Math.PI * 2); ctx.fill();
-    ctx.restore();
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(-sw / 2 - 4, bodyY, sw + 8, bodyH);
-    ctx.clip();
-    ctx.drawImage(_lolaSprite, -sw / 2, bodyY, sw, sh);
-    ctx.restore();
+    const legBob = Math.sin(frame * 0.8) * 4;
 
     ctx.fillStyle = "#5533bb";
-    ctx.fillRect(-7, oy + 20 + legBob * 0.3, 5, 10 + legBob);
-    ctx.fillRect(2, oy + 20 - legBob * 0.3, 5, 10 - legBob);
+    ctx.fillRect(-6, oy + 24, 5, 8 + legBob);
+    ctx.fillRect(1, oy + 24, 5, 8 - legBob);
     ctx.fillStyle = "#2255dd";
-    ctx.fillRect(-9, oy + 28 + legBob * 0.5, 8, 5);
-    ctx.fillRect(1, oy + 28 - legBob * 0.5, 8, 5);
+    ctx.fillRect(-8, oy + 30 + legBob * 0.4, 7, 4);
+    ctx.fillRect(1, oy + 30 - legBob * 0.4, 7, 4);
 
-    ctx.restore();
+    ctx.drawImage(_lolaSprite, -sw / 2, bodyY, sw, sh);
 
     if (hurtFlash > 0) {
       ctx.save();
       ctx.globalCompositeOperation = "source-atop";
       ctx.globalAlpha = Math.min(hurtFlash * 2, 0.55);
       ctx.fillStyle = "#ff2200";
-      ctx.fillRect(-sw / 2 - 20, bodyY - 5, sw + 40, sh + 20);
+      ctx.fillRect(-sw / 2, bodyY, sw, sh);
       ctx.restore();
     }
   } else {
@@ -239,13 +209,13 @@ function drawDawn(ctx: CanvasRenderingContext2D, x: number, y: number, dir: numb
 
     const dw = 48, dh = 48;
     const bodyBob = Math.sin(frame * 1.2) * 1.5;
-    const wingFlap = Math.sin(frame * 1.2) * 0.12;
+    const wingFlap = Math.sin(frame * 1.2) * 0.08;
     ctx.save();
     ctx.rotate(wingFlap);
     ctx.fillStyle = "#f4f0e8";
-    ctx.beginPath(); ctx.ellipse(0, 2 + bodyBob, 16, 18, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(0, 4 + bodyBob, 13, 14, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = "#f8f4ee";
-    ctx.beginPath(); ctx.ellipse(2, -12 + bodyBob, 10, 10, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(1, -8 + bodyBob, 7, 7, 0, 0, Math.PI * 2); ctx.fill();
     ctx.drawImage(_dawnSprite, -dw / 2, -dh / 2 - 4 + bodyBob, dw, dh);
     ctx.restore();
   } else {
@@ -288,14 +258,8 @@ function drawEgg(ctx: CanvasRenderingContext2D, egg: Egg) {
   const glow = Math.sin(egg.bobOffset * 1.5) * 0.15 + 0.25;
 
   if (_eggSprite) {
-    const ew = 22, eh = 26;
-    ctx.save();
-    ctx.globalAlpha = glow + 0.3;
-    ctx.fillStyle = "#fff8cc";
-    ctx.beginPath(); ctx.ellipse(egg.x, by, ew * 0.7, eh * 0.6, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.globalAlpha = 1;
+    const ew = 24, eh = 28;
     ctx.drawImage(_eggSprite, egg.x - ew / 2, by - eh / 2, ew, eh);
-    ctx.restore();
   } else {
     const colors: Record<EggColor, [string, string]> = {
       red: ["#ee2222", "#ff8888"], blue: ["#2244ee", "#6699ff"],
@@ -488,18 +452,24 @@ function drawLavaDrop(ctx: CanvasRenderingContext2D, x: number, y: number) {
 
 function drawVolcanoBackground(ctx: CanvasRenderingContext2D, bgScrollX: number, worldTime: number) {
   if (_bgVolcano) {
-    ctx.globalAlpha = 0.35;
     ctx.drawImage(_bgVolcano, 0, 0, CANVAS_W, CANVAS_H);
-    ctx.globalAlpha = 1;
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+    skyGrad.addColorStop(0, "rgba(26,10,10,0.35)");
+    skyGrad.addColorStop(0.4, "rgba(45,8,8,0.3)");
+    skyGrad.addColorStop(1, "rgba(85,16,16,0.25)");
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+  } else {
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+    skyGrad.addColorStop(0, "#1a0a0a");
+    skyGrad.addColorStop(0.4, "#2d0808");
+    skyGrad.addColorStop(1, "#551010");
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
   }
-  const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-  skyGrad.addColorStop(0, "rgba(26,10,10,0.8)");
-  skyGrad.addColorStop(0.4, "rgba(45,8,8,0.75)");
-  skyGrad.addColorStop(1, "rgba(85,16,16,0.7)");
-  ctx.fillStyle = skyGrad;
-  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-  // Distant volcanic haze
+  if (_bgVolcano) ctx.globalAlpha = 0.3;
+
   for (let i = 0; i < 4; i++) {
     ctx.fillStyle = `rgba(200,50,0,${0.05 + Math.sin(worldTime * 0.5 + i) * 0.02})`;
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
@@ -572,13 +542,14 @@ function drawVolcanoBackground(ctx: CanvasRenderingContext2D, bgScrollX: number,
     }
   }
 
-  // Embers floating
   for (let i = 0; i < 12; i++) {
     const ex = ((i * 70 + worldTime * (20 + i * 5)) % (CANVAS_W + 50) + CANVAS_W + 50) % (CANVAS_W + 50) - 25;
     const ey = ((worldTime * 40 + i * 37) % (GROUND_Y + 20));
     ctx.fillStyle = `hsl(${20 + (i % 5) * 10}, 100%, ${50 + Math.sin(worldTime + i) * 15}%)`;
     ctx.beginPath(); ctx.arc(ex, ey, 2 + (i % 3), 0, Math.PI * 2); ctx.fill();
   }
+
+  ctx.globalAlpha = 1;
 }
 
 // =====================================================================
@@ -591,24 +562,29 @@ function drawBackground(
 ) {
   if (level === 1) {
     if (_bgBeach) {
-      ctx.globalAlpha = 0.35;
       ctx.drawImage(_bgBeach, 0, 0, CANVAS_W, CANVAS_H);
-      ctx.globalAlpha = 1;
+      const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+      skyGrad.addColorStop(0, "rgba(68,170,255,0.35)");
+      skyGrad.addColorStop(0.5, "rgba(136,221,255,0.3)");
+      skyGrad.addColorStop(1, "rgba(204,240,255,0.25)");
+      ctx.fillStyle = skyGrad;
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    } else {
+      const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+      skyGrad.addColorStop(0, "#44aaff");
+      skyGrad.addColorStop(0.5, "#88ddff");
+      skyGrad.addColorStop(1, "#ccf0ff");
+      ctx.fillStyle = skyGrad;
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
     }
-    const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-    skyGrad.addColorStop(0, "rgba(68,170,255,0.75)");
-    skyGrad.addColorStop(0.5, "rgba(136,221,255,0.7)");
-    skyGrad.addColorStop(1, "rgba(204,240,255,0.65)");
-    ctx.fillStyle = skyGrad;
-    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-    // Clouds
+    if (_bgBeach) ctx.globalAlpha = 0.3;
+
     clouds.forEach(c => {
       const px = ((c.x - bgScrollX * 0.3 + CANVAS_W * 3) % (CANVAS_W + 200)) - 100;
       drawCloud(ctx, { x: px, y: c.y, w: c.w });
     });
 
-    // Distant hills
     for (let i = 0; i < 3; i++) {
       const hx = ((i * 320 + 60 - bgScrollX * 0.15) % (CANVAS_W + 400) + CANVAS_W + 400) % (CANVAS_W + 400) - 200;
       ctx.fillStyle = `hsl(190, 50%, ${70 + i * 5}%)`;
@@ -618,53 +594,56 @@ function drawBackground(
       ctx.fill();
     }
 
-    // Ocean band - rich blue
     const oceanGrad = ctx.createLinearGradient(0, GROUND_Y - 20, 0, GROUND_Y + 50);
     oceanGrad.addColorStop(0, "#1155cc");
     oceanGrad.addColorStop(1, "#0033aa");
     ctx.fillStyle = oceanGrad;
     ctx.fillRect(0, GROUND_Y - 20, CANVAS_W, 70);
-    // Wave highlights
     for (let i = 0; i < 6; i++) {
       const wx = ((i * 170 - bgScrollX * 0.5 + 30) % (CANVAS_W + 200) + CANVAS_W + 200) % (CANVAS_W + 200) - 100;
       ctx.fillStyle = `rgba(120,200,255,${0.35 + Math.sin(worldTime * 1.5 + i) * 0.12})`;
       ctx.beginPath(); ctx.ellipse(wx, GROUND_Y - 8, 50, 8, 0, 0, Math.PI * 2); ctx.fill();
     }
 
-    // Sandy ground - warm golden
     const sandGrad = ctx.createLinearGradient(0, GROUND_Y, 0, CANVAS_H);
     sandGrad.addColorStop(0, "#f5d060");
     sandGrad.addColorStop(0.3, "#e8c040");
     sandGrad.addColorStop(1, "#c88a30");
     ctx.fillStyle = sandGrad;
     ctx.fillRect(0, GROUND_Y, CANVAS_W, CANVAS_H - GROUND_Y);
-    // Sand bumps
     for (let i = 0; i < 10; i++) {
       const bx = ((i * 90 - bgScrollX * 0.2 + 20) % (CANVAS_W + 100) + CANVAS_W + 100) % (CANVAS_W + 100) - 50;
       ctx.fillStyle = "#f0d870";
       ctx.beginPath(); ctx.ellipse(bx, GROUND_Y + 6, 28, 9, 0, 0, Math.PI * 2); ctx.fill();
     }
-    // Pebbles
     for (let i = 0; i < 15; i++) {
       const px2 = ((i * 60 + 10 - bgScrollX * 0.25) % (CANVAS_W + 80) + CANVAS_W + 80) % (CANVAS_W + 80) - 40;
       ctx.fillStyle = `hsl(30, 50%, ${45 + (i % 4) * 5}%)`;
       ctx.beginPath(); ctx.ellipse(px2, GROUND_Y + 14 + (i % 3) * 5, 4 + (i % 3), 3, 0, 0, Math.PI * 2); ctx.fill();
     }
 
+    ctx.globalAlpha = 1;
+
   } else if (level === 2) {
     if (_bgOcean) {
-      ctx.globalAlpha = 0.3;
       ctx.drawImage(_bgOcean, 0, 0, CANVAS_W, CANVAS_H);
-      ctx.globalAlpha = 1;
+      const seaGrad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
+      seaGrad.addColorStop(0, "rgba(0,68,136,0.35)");
+      seaGrad.addColorStop(0.4, "rgba(0,85,153,0.3)");
+      seaGrad.addColorStop(1, "rgba(0,34,68,0.35)");
+      ctx.fillStyle = seaGrad;
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    } else {
+      const seaGrad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
+      seaGrad.addColorStop(0, "#004488");
+      seaGrad.addColorStop(0.4, "#005599");
+      seaGrad.addColorStop(1, "#002244");
+      ctx.fillStyle = seaGrad;
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
     }
-    const seaGrad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
-    seaGrad.addColorStop(0, "rgba(0,68,136,0.8)");
-    seaGrad.addColorStop(0.4, "rgba(0,85,153,0.75)");
-    seaGrad.addColorStop(1, "rgba(0,34,68,0.8)");
-    ctx.fillStyle = seaGrad;
-    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-    // Shimmering light rays
+    if (_bgOcean) ctx.globalAlpha = 0.3;
+
     for (let i = 0; i < 5; i++) {
       const rAlpha = 0.06 + Math.sin(worldTime * 0.8 + i) * 0.02;
       ctx.fillStyle = `rgba(100,200,255,${rAlpha})`;
@@ -675,7 +654,6 @@ function drawBackground(
       ctx.closePath(); ctx.fill();
     }
 
-    // Bubbles
     for (let i = 0; i < 10; i++) {
       const bx = ((i * 100 - bgScrollX * 0.12 + 20) % (CANVAS_W + 60) + CANVAS_W + 60) % (CANVAS_W + 60) - 30;
       const by = GROUND_Y - ((worldTime * 28 + i * 42) % GROUND_Y);
@@ -684,14 +662,12 @@ function drawBackground(
       ctx.beginPath(); ctx.arc(bx, by, 3 + (i % 4), 0, Math.PI * 2); ctx.stroke();
     }
 
-    // Seafloor - rich warm sand
     const floorGrad = ctx.createLinearGradient(0, GROUND_Y, 0, CANVAS_H);
     floorGrad.addColorStop(0, "#c8a860");
     floorGrad.addColorStop(1, "#a87840");
     ctx.fillStyle = floorGrad;
     ctx.fillRect(0, GROUND_Y, CANVAS_W, CANVAS_H - GROUND_Y);
 
-    // Coral and seaweed
     for (let i = 0; i < 9; i++) {
       const cx2 = ((i * 120 + 40 - cameraX * 0.75) % (CANVAS_W + 130) + CANVAS_W + 130) % (CANVAS_W + 130) - 65;
       if (i % 3 === 0) {
@@ -727,19 +703,26 @@ function drawBackground(
       }
     }
 
+    ctx.globalAlpha = 1;
+
   } else if (level === 3) {
     if (_bgForest) {
-      ctx.globalAlpha = 0.35;
       ctx.drawImage(_bgForest, 0, 0, CANVAS_W, CANVAS_H);
-      ctx.globalAlpha = 1;
+      const skyGrad2 = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+      skyGrad2.addColorStop(0, "rgba(136,204,85,0.3)");
+      skyGrad2.addColorStop(1, "rgba(187,238,136,0.25)");
+      ctx.fillStyle = skyGrad2;
+      ctx.fillRect(0, 0, CANVAS_W, GROUND_Y);
+    } else {
+      const skyGrad2 = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+      skyGrad2.addColorStop(0, "#88cc55");
+      skyGrad2.addColorStop(1, "#bbee88");
+      ctx.fillStyle = skyGrad2;
+      ctx.fillRect(0, 0, CANVAS_W, GROUND_Y);
     }
-    const skyGrad2 = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-    skyGrad2.addColorStop(0, "rgba(136,204,85,0.7)");
-    skyGrad2.addColorStop(1, "rgba(187,238,136,0.65)");
-    ctx.fillStyle = skyGrad2;
-    ctx.fillRect(0, 0, CANVAS_W, GROUND_Y);
 
-    // Background tree trunks (far)
+    if (_bgForest) ctx.globalAlpha = 0.3;
+
     for (let i = 0; i < 12; i++) {
       const tx = ((i * 130 + 40 - bgScrollX * 0.4) % (CANVAS_W + 250) + CANVAS_W + 250) % (CANVAS_W + 250) - 125;
       ctx.fillStyle = `hsl(25, 45%, ${18 + (i % 3) * 4}%)`;
@@ -798,6 +781,8 @@ function drawBackground(
       ctx.fillStyle = center;
       ctx.beginPath(); ctx.arc(fx, GROUND_Y - 7, 3, 0, Math.PI * 2); ctx.fill();
     }
+
+    ctx.globalAlpha = 1;
 
   } else if (level === 4) {
     drawVolcanoBackground(ctx, bgScrollX, worldTime);
