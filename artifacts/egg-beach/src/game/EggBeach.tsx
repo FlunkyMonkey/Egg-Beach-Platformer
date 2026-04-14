@@ -1,8 +1,25 @@
 import { useEffect, useRef, useCallback } from "react";
 import lolaSpriteSrc from "../assets/lola_sprite.png";
+import dawnSpriteSrc from "../assets/dawn_sprite.png";
+import eggSpriteSrc from "../assets/egg_sprite.png";
+import jellyfishSpriteSrc from "../assets/jellyfish_sprite.png";
+import titleArtSrc from "../assets/title_art.png";
+import winScreenSrc from "../assets/win_screen.png";
+import bgBeachSrc from "../assets/bg_beach.png";
+import bgOceanSrc from "../assets/bg_ocean.png";
+import bgForestSrc from "../assets/bg_forest.png";
+import bgVolcanoSrc from "../assets/bg_volcano.png";
 
-// Module-level sprite — set once on image load
 let _lolaSprite: HTMLImageElement | null = null;
+let _dawnSprite: HTMLImageElement | null = null;
+let _eggSprite: HTMLImageElement | null = null;
+let _jellyfishSprite: HTMLImageElement | null = null;
+let _titleArt: HTMLImageElement | null = null;
+let _winScreen: HTMLImageElement | null = null;
+let _bgBeach: HTMLImageElement | null = null;
+let _bgOcean: HTMLImageElement | null = null;
+let _bgForest: HTMLImageElement | null = null;
+let _bgVolcano: HTMLImageElement | null = null;
 
 // =====================================================================
 // TYPES
@@ -119,7 +136,6 @@ function drawLola(
   frame: number, hurtFlash: number
 ) {
   ctx.save();
-  // Scale 1.5× anchored at feet (local y ≈ 34)
   ctx.translate(x, y + 34);
   ctx.scale(facing * 1.125, 1.125);
   ctx.translate(0, -34);
@@ -129,22 +145,58 @@ function drawLola(
   const oy = crouching ? 10 : 0;
 
   if (_lolaSprite) {
-    // --- Sprite path: daughter's drawing ---
-    // Sprite is 160×275; map to local coords with feet at y=34
     const sw = 52, sh = 90;
-    const sx = -sw / 2, sy = 34 - sh + oy * 0.5;
-    ctx.drawImage(_lolaSprite, sx, sy, sw, sh);
-    // Red hurt flash overlay clipped to sprite shape
+    const bodyH = sh * 0.78;
+    const bodyY = 34 - sh + oy * 0.5;
+    const legBob = Math.sin(frame * 0.8) * 5;
+    const bodyTilt = Math.sin(frame * 0.8) * 0.04;
+
+    ctx.save();
+    ctx.rotate(bodyTilt);
+
+    const armSwing = Math.sin(frame * 0.8) * 12;
+    ctx.fillStyle = "#c07840";
+    ctx.save();
+    ctx.translate(-18, oy + 2);
+    ctx.rotate(armSwing * 0.06);
+    ctx.fillRect(-3, 0, 6, 14);
+    ctx.fillStyle = "#e09050";
+    ctx.beginPath(); ctx.arc(0, 14, 3.5, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    ctx.save();
+    ctx.translate(18, oy + 2);
+    ctx.rotate(-armSwing * 0.06);
+    ctx.fillStyle = "#c07840";
+    ctx.fillRect(-3, 0, 6, 14);
+    ctx.fillStyle = "#e09050";
+    ctx.beginPath(); ctx.arc(0, 14, 3.5, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(-sw / 2 - 4, bodyY, sw + 8, bodyH);
+    ctx.clip();
+    ctx.drawImage(_lolaSprite, -sw / 2, bodyY, sw, sh);
+    ctx.restore();
+
+    ctx.fillStyle = "#5533bb";
+    ctx.fillRect(-7, oy + 20 + legBob * 0.3, 5, 10 + legBob);
+    ctx.fillRect(2, oy + 20 - legBob * 0.3, 5, 10 - legBob);
+    ctx.fillStyle = "#2255dd";
+    ctx.fillRect(-9, oy + 28 + legBob * 0.5, 8, 5);
+    ctx.fillRect(1, oy + 28 - legBob * 0.5, 8, 5);
+
+    ctx.restore();
+
     if (hurtFlash > 0) {
       ctx.save();
       ctx.globalCompositeOperation = "source-atop";
       ctx.globalAlpha = Math.min(hurtFlash * 2, 0.55);
       ctx.fillStyle = "#ff2200";
-      ctx.fillRect(sx, sy, sw, sh);
+      ctx.fillRect(-sw / 2 - 20, bodyY - 5, sw + 40, sh + 20);
       ctx.restore();
     }
   } else {
-    // --- Procedural fallback ---
     if (hurtFlash > 0) {
       ctx.globalAlpha = Math.min(hurtFlash * 2, 0.65);
       ctx.fillStyle = "#ff2200";
@@ -154,31 +206,17 @@ function drawLola(
     const legBob = Math.sin(frame * 0.8) * 3;
     ctx.fillStyle = "#5533bb"; ctx.fillRect(-7, oy + 22, 6, 8 + legBob); ctx.fillRect(2, oy + 22, 6, 8 - legBob);
     ctx.fillStyle = "#2255dd"; ctx.fillRect(-9, oy + 28, 8, 6); ctx.fillRect(2, oy + 28, 8, 6);
-    ctx.fillStyle = "#4477ff"; ctx.fillRect(-9, oy + 28, 8, 2); ctx.fillRect(2, oy + 28, 8, 2);
     ctx.fillStyle = "#8844ee";
     ctx.beginPath(); ctx.moveTo(-10, oy + 14); ctx.lineTo(10, oy + 14); ctx.lineTo(13, oy + 27); ctx.lineTo(-13, oy + 27); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = "#aa66ff"; ctx.fillRect(-8, oy + 14, 16, 4);
     ctx.fillStyle = "#9955ff"; ctx.fillRect(-8, oy - 2, 16, 18);
-    ctx.fillStyle = "#bb77ff"; ctx.fillRect(-8, oy - 2, 16, 4);
     const armBob = Math.sin(frame * 0.8) * 4;
     ctx.fillStyle = "#e09050"; ctx.fillRect(-13, oy + 1 + armBob, 6, 11); ctx.fillRect(7, oy + 1 - armBob, 6, 11);
     ctx.fillStyle = "#e09050"; ctx.fillRect(-4, oy - 8, 8, 8);
     ctx.beginPath(); ctx.ellipse(0, oy - 15, 10, 11, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = "rgba(220,100,80,0.4)";
-    ctx.beginPath(); ctx.ellipse(-6, oy - 13, 4, 3, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(6, oy - 13, 4, 3, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = "#ffdd11"; ctx.beginPath(); ctx.ellipse(0, oy - 22, 11, 8, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillRect(-11, oy - 22, 4, 13); ctx.fillRect(7, oy - 22, 4, 13);
-    ctx.fillStyle = "#ffe84a"; ctx.fillRect(-11, oy - 22, 2, 6); ctx.fillRect(9, oy - 22, 2, 6);
     ctx.fillStyle = "#fff"; ctx.fillRect(-6, oy - 18, 5, 5); ctx.fillRect(2, oy - 18, 5, 5);
     ctx.fillStyle = "#2255ee"; ctx.fillRect(-5, oy - 17, 3, 3); ctx.fillRect(3, oy - 17, 3, 3);
-    ctx.fillStyle = "#000"; ctx.fillRect(-5, oy - 17, 1, 1); ctx.fillRect(3, oy - 17, 1, 1);
-    ctx.fillStyle = "#fff"; ctx.fillRect(-4, oy - 17, 1, 1); ctx.fillRect(4, oy - 17, 1, 1);
-    for (let i = 0; i < 5; i++) {
-      const a = (i / 5) * Math.PI * 2;
-      ctx.fillStyle = "#ff7700"; ctx.beginPath(); ctx.arc(-3 + Math.cos(a) * 4, oy - 29 + Math.sin(a) * 4, 2.5, 0, Math.PI * 2); ctx.fill();
-    }
-    ctx.fillStyle = "#ffcc00"; ctx.beginPath(); ctx.arc(-3, oy - 29, 2.5, 0, Math.PI * 2); ctx.fill();
   }
 
   ctx.restore();
@@ -186,96 +224,92 @@ function drawLola(
 
 function drawDawn(ctx: CanvasRenderingContext2D, x: number, y: number, dir: number, frame: number) {
   ctx.save();
-  // Scale 1.5× anchored at feet (local y ≈ 27)
   ctx.translate(x, y + 27);
   ctx.scale(dir * 1.5, 1.5);
   ctx.translate(0, -27);
 
-  const legBob = Math.sin(frame * 1.2) * 3;
-  // Legs
-  ctx.fillStyle = "#ffbb22";
-  ctx.fillRect(-5, 18, 4, 8 + legBob);
-  ctx.fillRect(1, 18, 4, 8 - legBob);
-  ctx.fillRect(-7, 24, 8, 3);
-  ctx.fillRect(1, 24, 8, 3);
-  // Body (WHITE chicken)
-  ctx.fillStyle = "#f4f0e8";
-  ctx.beginPath();
-  ctx.ellipse(0, 8, 13, 15, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // Body shadow / depth
-  ctx.fillStyle = "#d8d4cc";
-  ctx.beginPath();
-  ctx.ellipse(3, 11, 9, 11, 0.2, 0, Math.PI * 2);
-  ctx.fill();
-  // Wing
-  const wingBob = Math.sin(frame * 1.2) * 5;
-  ctx.fillStyle = "#e8e4dc";
-  ctx.beginPath();
-  ctx.ellipse(7, 4 + wingBob, 6, 10, 0.4, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#d0ccC4";
-  ctx.beginPath();
-  ctx.ellipse(8, 6 + wingBob, 3, 7, 0.4, 0, Math.PI * 2);
-  ctx.fill();
-  // Head (white)
-  ctx.fillStyle = "#f4f0e8";
-  ctx.beginPath();
-  ctx.ellipse(3, -10, 9, 9, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // Red comb
-  ctx.fillStyle = "#dd1111";
-  ctx.beginPath();
-  ctx.moveTo(-2, -18); ctx.lineTo(0, -23);
-  ctx.lineTo(3, -17); ctx.lineTo(5, -22);
-  ctx.lineTo(7, -17); ctx.lineTo(8, -15);
-  ctx.lineTo(-2, -15); ctx.closePath(); ctx.fill();
-  // Wattle
-  ctx.fillStyle = "#dd1111";
-  ctx.beginPath(); ctx.ellipse(5, -5, 3, 4, 0, 0, Math.PI * 2); ctx.fill();
-  // Yellow beak
-  ctx.fillStyle = "#ffdd00";
-  ctx.beginPath();
-  ctx.moveTo(10, -11); ctx.lineTo(17, -9); ctx.lineTo(10, -7);
-  ctx.closePath(); ctx.fill();
-  ctx.fillStyle = "#ccaa00";
-  ctx.beginPath();
-  ctx.moveTo(10, -9); ctx.lineTo(17, -9); ctx.lineTo(10, -7);
-  ctx.closePath(); ctx.fill();
-  // Eye
-  ctx.fillStyle = "#fff";
-  ctx.beginPath(); ctx.arc(7, -12, 3, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = "#cc1111";
-  ctx.beginPath(); ctx.arc(8, -12, 1.8, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = "#000";
-  ctx.beginPath(); ctx.arc(8, -12, 0.8, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = "#fff";
-  ctx.beginPath(); ctx.arc(7.5, -12.5, 0.6, 0, Math.PI * 2); ctx.fill();
+  const legBob = Math.sin(frame * 1.2) * 4;
+
+  if (_dawnSprite) {
+    ctx.fillStyle = "#ffbb22";
+    ctx.fillRect(-5, 18, 4, 8 + legBob);
+    ctx.fillRect(1, 18, 4, 8 - legBob);
+    ctx.fillRect(-7, 24 + legBob * 0.3, 8, 3);
+    ctx.fillRect(1, 24 - legBob * 0.3, 8, 3);
+
+    const dw = 48, dh = 48;
+    const bodyBob = Math.sin(frame * 1.2) * 1.5;
+    const wingFlap = Math.sin(frame * 1.2) * 0.12;
+    ctx.save();
+    ctx.rotate(wingFlap);
+    ctx.fillStyle = "#f4f0e8";
+    ctx.beginPath(); ctx.ellipse(0, 2 + bodyBob, 16, 18, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#f8f4ee";
+    ctx.beginPath(); ctx.ellipse(2, -12 + bodyBob, 10, 10, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.drawImage(_dawnSprite, -dw / 2, -dh / 2 - 4 + bodyBob, dw, dh);
+    ctx.restore();
+  } else {
+    ctx.fillStyle = "#ffbb22";
+    ctx.fillRect(-5, 18, 4, 8 + legBob);
+    ctx.fillRect(1, 18, 4, 8 - legBob);
+    ctx.fillRect(-7, 24, 8, 3);
+    ctx.fillRect(1, 24, 8, 3);
+    ctx.fillStyle = "#f4f0e8";
+    ctx.beginPath(); ctx.ellipse(0, 8, 13, 15, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#d8d4cc";
+    ctx.beginPath(); ctx.ellipse(3, 11, 9, 11, 0.2, 0, Math.PI * 2); ctx.fill();
+    const wingBob = Math.sin(frame * 1.2) * 5;
+    ctx.fillStyle = "#e8e4dc";
+    ctx.beginPath(); ctx.ellipse(7, 4 + wingBob, 6, 10, 0.4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#f4f0e8";
+    ctx.beginPath(); ctx.ellipse(3, -10, 9, 9, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#dd1111";
+    ctx.beginPath();
+    ctx.moveTo(-2, -18); ctx.lineTo(0, -23); ctx.lineTo(3, -17); ctx.lineTo(5, -22);
+    ctx.lineTo(7, -17); ctx.lineTo(8, -15); ctx.lineTo(-2, -15); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#dd1111";
+    ctx.beginPath(); ctx.ellipse(5, -5, 3, 4, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#ffdd00";
+    ctx.beginPath(); ctx.moveTo(10, -11); ctx.lineTo(17, -9); ctx.lineTo(10, -7); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.beginPath(); ctx.arc(7, -12, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#cc1111";
+    ctx.beginPath(); ctx.arc(8, -12, 1.8, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#000";
+    ctx.beginPath(); ctx.arc(8, -12, 0.8, 0, Math.PI * 2); ctx.fill();
+  }
 
   ctx.restore();
 }
 
 function drawEgg(ctx: CanvasRenderingContext2D, egg: Egg) {
   if (egg.collected) return;
-  const colors: Record<EggColor, [string, string]> = {
-    red:    ["#ee2222", "#ff8888"],
-    blue:   ["#2244ee", "#6699ff"],
-    green:  ["#11aa33", "#55ee77"],
-    yellow: ["#ddbb00", "#ffee55"],
-    purple: ["#8822cc", "#cc77ff"],
-  };
-  const [base, shine] = colors[egg.color];
   const by = egg.y + Math.sin(egg.bobOffset) * 4;
-  ctx.fillStyle = base;
-  drawEggShape(ctx, egg.x, by, 9, 12);
-  // Gradient highlight
-  ctx.fillStyle = shine;
-  ctx.beginPath();
-  ctx.ellipse(egg.x - 3, by - 5, 4, 5, -0.5, 0, Math.PI * 2);
-  ctx.fill();
-  // Shine dot
-  ctx.fillStyle = "rgba(255,255,255,0.7)";
-  ctx.beginPath(); ctx.arc(egg.x - 4, by - 6, 2, 0, Math.PI * 2); ctx.fill();
+  const glow = Math.sin(egg.bobOffset * 1.5) * 0.15 + 0.25;
+
+  if (_eggSprite) {
+    const ew = 22, eh = 26;
+    ctx.save();
+    ctx.globalAlpha = glow + 0.3;
+    ctx.fillStyle = "#fff8cc";
+    ctx.beginPath(); ctx.ellipse(egg.x, by, ew * 0.7, eh * 0.6, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.drawImage(_eggSprite, egg.x - ew / 2, by - eh / 2, ew, eh);
+    ctx.restore();
+  } else {
+    const colors: Record<EggColor, [string, string]> = {
+      red: ["#ee2222", "#ff8888"], blue: ["#2244ee", "#6699ff"],
+      green: ["#11aa33", "#55ee77"], yellow: ["#ddbb00", "#ffee55"],
+      purple: ["#8822cc", "#cc77ff"],
+    };
+    const [base, shine] = colors[egg.color];
+    ctx.fillStyle = base;
+    drawEggShape(ctx, egg.x, by, 9, 12);
+    ctx.fillStyle = shine;
+    ctx.beginPath(); ctx.ellipse(egg.x - 3, by - 5, 4, 5, -0.5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.7)";
+    ctx.beginPath(); ctx.arc(egg.x - 4, by - 6, 2, 0, Math.PI * 2); ctx.fill();
+  }
 }
 
 function drawCrab(ctx: CanvasRenderingContext2D, crab: Crab) {
@@ -316,30 +350,29 @@ function drawJellyfish(ctx: CanvasRenderingContext2D, jf: Jellyfish, worldTime: 
   const y = jf.startY + Math.sin(worldTime * jf.speed + jf.phase) * 40;
   ctx.save();
   ctx.translate(jf.x, y);
-  // Dome outer
-  ctx.fillStyle = "rgba(220,80,240,0.65)";
-  ctx.beginPath(); ctx.ellipse(0, 0, 22, 16, 0, 0, Math.PI * 2); ctx.fill();
-  // Dome inner glow
-  ctx.fillStyle = "rgba(255,160,255,0.45)";
-  ctx.beginPath(); ctx.ellipse(-5, -4, 12, 9, 0, 0, Math.PI * 2); ctx.fill();
-  // Polka dots
-  ctx.fillStyle = "rgba(255,200,255,0.5)";
-  ctx.beginPath(); ctx.arc(6, -2, 4, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(-8, 3, 3, 0, Math.PI * 2); ctx.fill();
-  // Tentacles
-  ctx.lineWidth = 2.5;
-  for (let i = -3; i <= 3; i++) {
-    const xOff = i * 5;
-    const c = `hsl(${280 + i * 10},80%,${55 + Math.sin(worldTime + i) * 10}%)`;
-    ctx.strokeStyle = c;
-    ctx.beginPath();
-    ctx.moveTo(xOff, 14);
-    ctx.bezierCurveTo(
-      xOff + 6, 22 + Math.sin(worldTime * 2.2 + i) * 6,
-      xOff - 6, 30 + Math.sin(worldTime * 2 + i + 1) * 6,
-      xOff + 3, 40
-    );
-    ctx.stroke();
+
+  if (_jellyfishSprite) {
+    const jw = 50, jh = 62;
+    const pulse = 1 + Math.sin(worldTime * 2 + jf.phase) * 0.08;
+    const sway = Math.sin(worldTime * 1.2 + jf.phase) * 0.1;
+    ctx.save();
+    ctx.rotate(sway);
+    ctx.scale(pulse, 1 / pulse);
+    ctx.drawImage(_jellyfishSprite, -jw / 2, -jh * 0.35, jw, jh);
+    ctx.restore();
+  } else {
+    ctx.fillStyle = "rgba(220,80,240,0.65)";
+    ctx.beginPath(); ctx.ellipse(0, 0, 22, 16, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "rgba(255,160,255,0.45)";
+    ctx.beginPath(); ctx.ellipse(-5, -4, 12, 9, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = 2.5;
+    for (let i = -3; i <= 3; i++) {
+      const xOff = i * 5;
+      ctx.strokeStyle = `hsl(${280 + i * 10},80%,${55 + Math.sin(worldTime + i) * 10}%)`;
+      ctx.beginPath(); ctx.moveTo(xOff, 14);
+      ctx.bezierCurveTo(xOff + 6, 22 + Math.sin(worldTime * 2.2 + i) * 6, xOff - 6, 30 + Math.sin(worldTime * 2 + i + 1) * 6, xOff + 3, 40);
+      ctx.stroke();
+    }
   }
   ctx.restore();
 }
@@ -454,11 +487,15 @@ function drawLavaDrop(ctx: CanvasRenderingContext2D, x: number, y: number) {
 }
 
 function drawVolcanoBackground(ctx: CanvasRenderingContext2D, bgScrollX: number, worldTime: number) {
-  // Dark dramatic sky
+  if (_bgVolcano) {
+    ctx.globalAlpha = 0.35;
+    ctx.drawImage(_bgVolcano, 0, 0, CANVAS_W, CANVAS_H);
+    ctx.globalAlpha = 1;
+  }
   const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-  skyGrad.addColorStop(0, "#1a0a0a");
-  skyGrad.addColorStop(0.4, "#2d0808");
-  skyGrad.addColorStop(1, "#551010");
+  skyGrad.addColorStop(0, "rgba(26,10,10,0.8)");
+  skyGrad.addColorStop(0.4, "rgba(45,8,8,0.75)");
+  skyGrad.addColorStop(1, "rgba(85,16,16,0.7)");
   ctx.fillStyle = skyGrad;
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
@@ -553,11 +590,15 @@ function drawBackground(
   clouds: Cloud[], cameraX: number
 ) {
   if (level === 1) {
-    // Stardew-style warm beach sky
+    if (_bgBeach) {
+      ctx.globalAlpha = 0.35;
+      ctx.drawImage(_bgBeach, 0, 0, CANVAS_W, CANVAS_H);
+      ctx.globalAlpha = 1;
+    }
     const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-    skyGrad.addColorStop(0, "#44aaff");
-    skyGrad.addColorStop(0.5, "#88ddff");
-    skyGrad.addColorStop(1, "#ccf0ff");
+    skyGrad.addColorStop(0, "rgba(68,170,255,0.75)");
+    skyGrad.addColorStop(0.5, "rgba(136,221,255,0.7)");
+    skyGrad.addColorStop(1, "rgba(204,240,255,0.65)");
     ctx.fillStyle = skyGrad;
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
@@ -611,11 +652,15 @@ function drawBackground(
     }
 
   } else if (level === 2) {
-    // Underwater - rich teal-blue
+    if (_bgOcean) {
+      ctx.globalAlpha = 0.3;
+      ctx.drawImage(_bgOcean, 0, 0, CANVAS_W, CANVAS_H);
+      ctx.globalAlpha = 1;
+    }
     const seaGrad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
-    seaGrad.addColorStop(0, "#004488");
-    seaGrad.addColorStop(0.4, "#005599");
-    seaGrad.addColorStop(1, "#002244");
+    seaGrad.addColorStop(0, "rgba(0,68,136,0.8)");
+    seaGrad.addColorStop(0.4, "rgba(0,85,153,0.75)");
+    seaGrad.addColorStop(1, "rgba(0,34,68,0.8)");
     ctx.fillStyle = seaGrad;
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
@@ -683,10 +728,14 @@ function drawBackground(
     }
 
   } else if (level === 3) {
-    // Forest - warm dappled light
+    if (_bgForest) {
+      ctx.globalAlpha = 0.35;
+      ctx.drawImage(_bgForest, 0, 0, CANVAS_W, CANVAS_H);
+      ctx.globalAlpha = 1;
+    }
     const skyGrad2 = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-    skyGrad2.addColorStop(0, "#88cc55");
-    skyGrad2.addColorStop(1, "#bbee88");
+    skyGrad2.addColorStop(0, "rgba(136,204,85,0.7)");
+    skyGrad2.addColorStop(1, "rgba(187,238,136,0.65)");
     ctx.fillStyle = skyGrad2;
     ctx.fillRect(0, 0, CANVAS_W, GROUND_Y);
 
@@ -1035,63 +1084,78 @@ function drawHowToPlay(ctx: CanvasRenderingContext2D) {
 // START SCREEN
 // =====================================================================
 function drawStartScreen(ctx: CanvasRenderingContext2D, lolaFrame: number) {
-  // Sky gradient
   const skyGrad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
   skyGrad.addColorStop(0, "#33aaff");
   skyGrad.addColorStop(0.55, "#88ddff");
   skyGrad.addColorStop(1, "#f5d060");
   ctx.fillStyle = skyGrad;
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-  // Ocean
   ctx.fillStyle = "#1155cc";
   ctx.fillRect(0, 305, CANVAS_W, 75);
   ctx.fillStyle = "#aaddff";
   for (let i = 0; i < 5; i++) {
     ctx.beginPath(); ctx.ellipse(80 + i * 160, 305, 55, 9, 0, 0, Math.PI * 2); ctx.fill();
   }
-  // Beach
   const beachGrad = ctx.createLinearGradient(0, 340, 0, CANVAS_H);
   beachGrad.addColorStop(0, "#f5d060");
   beachGrad.addColorStop(1, "#c88830");
   ctx.fillStyle = beachGrad;
   ctx.fillRect(0, 340, CANVAS_W, CANVAS_H - 340);
-  // Clouds
   for (let i = 0; i < 4; i++) {
     drawCloud(ctx, { x: 100 + i * 210, y: 55 + (i % 2) * 22, w: 90 + (i % 3) * 20 });
   }
-  // Waves
-  for (let i = 0; i < 4; i++) {
-    ctx.fillStyle = "rgba(150,210,255,0.35)";
-    ctx.beginPath(); ctx.ellipse(100 + i * 200, 315 + (i % 2) * 6, 60, 10, 0, 0, Math.PI * 2); ctx.fill();
+
+  if (_titleArt) {
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    ctx.drawImage(_titleArt, CANVAS_W / 2 - 200, 10, 400, 280);
+    ctx.globalAlpha = 1;
+    ctx.restore();
   }
-  // Title
+
   ctx.textAlign = "center";
-  ctx.font = "bold 76px monospace";
+  ctx.font = "bold 52px monospace";
   ctx.fillStyle = "#003a80";
-  ctx.fillText("EGG BEACH", CANVAS_W / 2 + 4, 136);
-  const titleGrad = ctx.createLinearGradient(0, 72, 0, 142);
+  ctx.fillText("The Egg Beach", CANVAS_W / 2 + 3, 96);
+  const titleGrad = ctx.createLinearGradient(0, 52, 0, 102);
   titleGrad.addColorStop(0, "#ffe840");
   titleGrad.addColorStop(0.5, "#ffaa00");
   titleGrad.addColorStop(1, "#ff6600");
   ctx.fillStyle = titleGrad;
-  ctx.fillText("EGG BEACH", CANVAS_W / 2, 132);
-  // Subtitle bar
+  ctx.fillText("The Egg Beach", CANVAS_W / 2, 93);
   ctx.fillStyle = "#003a80";
-  ctx.fillRect(CANVAS_W / 2 - 210, 143, 420, 4);
-  // Tagline
+  ctx.fillRect(CANVAS_W / 2 - 240, 105, 480, 3);
+
+  ctx.strokeStyle = "#2244aa";
+  ctx.lineWidth = 3;
+  const waveY = 115;
+  for (let side = 0; side < 2; side++) {
+    const sx = side === 0 ? 60 : CANVAS_W - 60;
+    const dir = side === 0 ? 1 : -1;
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 6;
+      const px = sx + Math.sin(angle) * 8 * dir;
+      const py = waveY + i * 30;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+  }
+
   ctx.fillStyle = "#fff";
   ctx.font = "bold 18px monospace";
-  ctx.fillText("Chase the chicken. Collect the eggs!", CANVAS_W / 2, 172);
+  ctx.fillText("Chase the chicken. Collect the eggs!", CANVAS_W / 2, 140);
   ctx.font = "14px monospace";
   ctx.fillStyle = "rgba(255,255,255,0.7)";
-  ctx.fillText("4 exciting levels! Beach · Ocean · Forest · Volcano", CANVAS_W / 2, 195);
-  // Characters
+  ctx.fillText("4 exciting levels! Beach · Ocean · Forest · Volcano", CANVAS_W / 2, 163);
+
   drawLola(ctx, CANVAS_W / 2 - 50, 328, 1, false, lolaFrame, 0);
   drawDawn(ctx, CANVAS_W / 2 + 55, 328, -1, lolaFrame);
   ctx.fillStyle = "#ff4400";
   ctx.font = "bold 28px monospace";
+  ctx.textAlign = "center";
   ctx.fillText("→", CANVAS_W / 2 + 2, 325);
-  // Prompt
+
   const alpha = 0.5 + Math.sin(Date.now() * 0.003) * 0.5;
   ctx.fillStyle = `rgba(255,255,255,${alpha})`;
   ctx.font = "bold 20px monospace";
@@ -1103,22 +1167,52 @@ function drawStartScreen(ctx: CanvasRenderingContext2D, lolaFrame: number) {
 // GAME OVER SCREEN
 // =====================================================================
 function drawGameOver(ctx: CanvasRenderingContext2D) {
-  ctx.fillStyle = "rgba(0,0,0,0.82)";
+  const grad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
+  grad.addColorStop(0, "#1a0505");
+  grad.addColorStop(1, "#330808");
+  ctx.fillStyle = grad;
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+  if (_dawnSprite) {
+    ctx.save();
+    ctx.globalAlpha = 0.15;
+    ctx.drawImage(_dawnSprite, CANVAS_W / 2 - 60, 240, 120, 120);
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  const t = Date.now() * 0.001;
+  for (let i = 0; i < 8; i++) {
+    const cx = ((i * 110 + t * 20) % (CANVAS_W + 40)) - 20;
+    const cy = ((t * 15 + i * 55) % CANVAS_H);
+    ctx.fillStyle = `rgba(255,60,0,${0.15 + Math.sin(t + i) * 0.08})`;
+    ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI * 2); ctx.fill();
+  }
+
   ctx.textAlign = "center";
-  // Shadow
   ctx.fillStyle = "#550000";
-  ctx.font = "bold 64px monospace";
-  ctx.fillText("GAME OVER", CANVAS_W / 2 + 4, 184);
+  ctx.font = "bold 58px monospace";
+  ctx.fillText("GAME OVER", CANVAS_W / 2 + 3, 134);
   ctx.fillStyle = "#ff4444";
-  ctx.fillText("GAME OVER", CANVAS_W / 2, 180);
+  ctx.fillText("GAME OVER", CANVAS_W / 2, 131);
   ctx.fillStyle = "#ffaaaa";
   ctx.font = "22px monospace";
-  ctx.fillText("The eggs got away...", CANVAS_W / 2, 238);
+  ctx.fillText("The eggs got away...", CANVAS_W / 2, 185);
+
+  if (_eggSprite) {
+    for (let i = 0; i < 5; i++) {
+      ctx.save();
+      ctx.globalAlpha = 0.4;
+      const ex = CANVAS_W / 2 - 80 + i * 40;
+      ctx.drawImage(_eggSprite, ex - 10, 200, 20, 24);
+      ctx.restore();
+    }
+  }
+
   const a = 0.5 + Math.sin(Date.now() * 0.003) * 0.5;
   ctx.fillStyle = `rgba(255,255,255,${a})`;
   ctx.font = "bold 18px monospace";
-  ctx.fillText("Press ENTER or Tap to Try Again", CANVAS_W / 2, 320);
+  ctx.fillText("Press ENTER or Tap to Try Again", CANVAS_W / 2, 380);
   ctx.textAlign = "left";
 }
 
@@ -1133,17 +1227,23 @@ function drawWinScreen(ctx: CanvasRenderingContext2D, animTime: number) {
   groundGrad.addColorStop(0, "#66cc33"); groundGrad.addColorStop(1, "#33aa11");
   ctx.fillStyle = groundGrad; ctx.fillRect(0, 300, CANVAS_W, CANVAS_H - 300);
   for (let i = 0; i < 4; i++) drawCloud(ctx, { x: 70 + i * 210, y: 50 + (i % 2) * 28, w: 80 + (i % 2) * 35 });
-  // Barn
-  const bx = CANVAS_W / 2, by = 305;
-  ctx.fillStyle = "#a05020"; ctx.fillRect(bx - 65, by - 40, 130, 85);
-  ctx.fillStyle = "#cc3300";
-  ctx.beginPath(); ctx.moveTo(bx - 80, by - 40); ctx.lineTo(bx, by - 95); ctx.lineTo(bx + 80, by - 40); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = "#881100";
-  ctx.beginPath(); ctx.moveTo(bx - 80, by - 40); ctx.lineTo(bx, by - 95); ctx.lineTo(bx - 5, by - 40); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = "#6a3010"; ctx.fillRect(bx - 20, by + 5, 40, 40);
-  ctx.beginPath(); ctx.arc(bx, by + 5, 20, Math.PI, 0); ctx.fill();
-  ctx.fillStyle = "#a0ccee"; ctx.fillRect(bx - 50, by - 28, 24, 20); ctx.fillRect(bx + 26, by - 28, 24, 20);
-  // Confetti
+
+  if (_winScreen) {
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.drawImage(_winScreen, CANVAS_W / 2 - 140, 155, 280, 290);
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  } else {
+    const bx = CANVAS_W / 2, by = 305;
+    ctx.fillStyle = "#a05020"; ctx.fillRect(bx - 65, by - 40, 130, 85);
+    ctx.fillStyle = "#cc3300";
+    ctx.beginPath(); ctx.moveTo(bx - 80, by - 40); ctx.lineTo(bx, by - 95); ctx.lineTo(bx + 80, by - 40); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#6a3010"; ctx.fillRect(bx - 20, by + 5, 40, 40);
+    ctx.beginPath(); ctx.arc(bx, by + 5, 20, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = "#a0ccee"; ctx.fillRect(bx - 50, by - 28, 24, 20); ctx.fillRect(bx + 26, by - 28, 24, 20);
+  }
+
   for (let i = 0; i < 18; i++) {
     const sx = ((i * 55 + animTime * 90 * (i % 2 === 0 ? 1 : -0.7)) % (CANVAS_W + 60) + CANVAS_W + 60) % (CANVAS_W + 60) - 30;
     const sy = ((animTime * 45 + i * 35) % CANVAS_H);
@@ -1151,15 +1251,15 @@ function drawWinScreen(ctx: CanvasRenderingContext2D, animTime: number) {
     ctx.save(); ctx.translate(sx, sy); ctx.rotate(animTime * 2 + i);
     ctx.fillRect(-4, -4, 8, 8); ctx.restore();
   }
-  // Text
+
   const bounce = Math.sin(animTime * 3.5) * 10;
   ctx.textAlign = "center";
-  ctx.fillStyle = "#003300"; ctx.font = "bold 60px monospace";
-  ctx.fillText("YOU WIN! 🎉", CANVAS_W / 2 + 4, 124 + bounce);
-  ctx.fillStyle = "#ffee22"; ctx.fillText("YOU WIN! 🎉", CANVAS_W / 2, 120 + bounce);
+  ctx.fillStyle = "#003300"; ctx.font = "bold 56px monospace";
+  ctx.fillText("YOU WIN!", CANVAS_W / 2 + 3, 84 + bounce);
+  ctx.fillStyle = "#ffee22"; ctx.fillText("YOU WIN!", CANVAS_W / 2, 81 + bounce);
   ctx.fillStyle = "#1a4400"; ctx.font = "18px monospace";
-  ctx.fillText("Lola catches Dawn just in time!", CANVAS_W / 2, 164);
-  ctx.fillText("The eggs are safe! 🥚🐔", CANVAS_W / 2, 190);
+  ctx.fillText("Lola catches Dawn just in time!", CANVAS_W / 2, 120);
+  ctx.fillText("The eggs are safe!", CANVAS_W / 2, 145);
   const a = 0.5 + Math.sin(animTime * 3) * 0.5;
   ctx.fillStyle = `rgba(0,80,0,${a})`; ctx.font = "bold 18px monospace";
   ctx.fillText("Press ENTER or Tap to Play Again", CANVAS_W / 2, CANVAS_H - 18);
@@ -1692,11 +1792,22 @@ export default function EggBeach() {
     onTouchEnd: (e: React.TouchEvent) => { e.preventDefault(); touchRef.current[key] = false; },
   });
 
-  // Load Lola's hand-drawn sprite once on mount
   useEffect(() => {
-    const img = new Image();
-    img.onload = () => { _lolaSprite = img; };
-    img.src = lolaSpriteSrc;
+    const load = (src: string, cb: (img: HTMLImageElement) => void) => {
+      const img = new Image();
+      img.onload = () => cb(img);
+      img.src = src;
+    };
+    load(lolaSpriteSrc, i => { _lolaSprite = i; });
+    load(dawnSpriteSrc, i => { _dawnSprite = i; });
+    load(eggSpriteSrc, i => { _eggSprite = i; });
+    load(jellyfishSpriteSrc, i => { _jellyfishSprite = i; });
+    load(titleArtSrc, i => { _titleArt = i; });
+    load(winScreenSrc, i => { _winScreen = i; });
+    load(bgBeachSrc, i => { _bgBeach = i; });
+    load(bgOceanSrc, i => { _bgOcean = i; });
+    load(bgForestSrc, i => { _bgForest = i; });
+    load(bgVolcanoSrc, i => { _bgVolcano = i; });
   }, []);
 
   const handleCanvasTap = () => {
