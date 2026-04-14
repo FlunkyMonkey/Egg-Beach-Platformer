@@ -121,7 +121,7 @@ function drawLola(
   ctx.save();
   // Scale 1.5× anchored at feet (local y ≈ 34)
   ctx.translate(x, y + 34);
-  ctx.scale(facing * 1.5, 1.5);
+  ctx.scale(facing * 1.125, 1.125);
   ctx.translate(0, -34);
 
   const scaleY = crouching ? 0.7 : 1;
