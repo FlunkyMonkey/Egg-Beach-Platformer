@@ -1,0 +1,25 @@
+# LoadBalancer on a MetalLB IP, deliberately NOT an Ingress.
+#
+# `*.vgriz.com` is a proxied CNAME to the Cloudflare tunnel, and the tunnel routes
+# the wildcard to ingress-nginx — so ANY Ingress host under vgriz.com is published
+# to the public internet the moment ArgoCD syncs it. This is a kid's game built
+# around family drawings, so it stays on the LAN. Adding an Ingress later is all it
+# would take to make it public; that should be a deliberate decision.
+apiVersion: v1
+kind: Service
+metadata:
+  name: egg-beach
+  namespace: egg-beach
+  labels:
+    app.kubernetes.io/name: egg-beach
+    app.kubernetes.io/part-of: family
+spec:
+  type: LoadBalancer
+  loadBalancerIP: 172.18.1.231
+  selector:
+    app.kubernetes.io/name: egg-beach
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

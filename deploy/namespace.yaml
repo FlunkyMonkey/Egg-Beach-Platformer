@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: egg-beach
+  labels:
+    app.kubernetes.io/name: egg-beach
+    app.kubernetes.io/part-of: family

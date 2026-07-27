@@ -49,10 +49,17 @@ self-contained, which is what lets it run on the LAN with no internet.
 
 Hosted on the homelab Kubernetes cluster, **LAN-only** at <http://172.18.1.231>.
 
-Pushing to `main` triggers `.github/workflows/build-image.yml`, which builds
-`ghcr.io/flunkymonkey/egg-beach-platformer:latest` (linux/amd64) and pushes it to GHCR.
-ArgoCD syncs the manifests from the `k8s-lab` repo (`apps/egg-beach/`) and restarts the
-deployment onto the new image.
+Pushing to `main` is the whole deploy. `.github/workflows/deploy.yml` builds
+`ghcr.io/flunkymonkey/egg-beach-platformer:sha-<commit>` (linux/amd64), then rewrites the
+`image:` line in `deploy/deployment.yaml` and pushes that commit back. ArgoCD watches
+`deploy/` and rolls the new tag out within a few minutes.
+
+Images are pinned to the commit they were built from rather than a moving `latest`, so
+what's running is always traceable and `git revert` on a deploy commit is a real
+rollback.
+
+Before pushing a visual change, run `./scripts/screenshots.sh` and look at the result —
+a canvas game can compile perfectly and still render nothing.
 
 This is deliberately **not** exposed through the Cloudflare tunnel. Because `*.vgriz.com`
 is a proxied CNAME to the tunnel, any Ingress under that domain would be public to the

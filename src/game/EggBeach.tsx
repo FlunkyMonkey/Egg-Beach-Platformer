@@ -1749,9 +1749,27 @@ export default function EggBeach() {
     return () => ro.disconnect();
   }, []);
 
+  // Jump straight to a screen for screenshots, e.g. ?state=PLAYING&level=3.
+  // Lets a change to level 3 be looked at without playing through levels 1 and 2.
+  // Ignored unless both params are valid, so normal players always get the title.
+  function applyDebugState(gs: GameStateData) {
+    const params = new URLSearchParams(window.location.search);
+    const wanted = params.get("state")?.toUpperCase();
+    const level = Number(params.get("level") ?? 1);
+
+    if (level >= 1 && level <= MAX_LEVELS) gs.level = level;
+    if (wanted === "PLAYING") {
+      gs.state = "PLAYING";
+      initLevel(gs.level, gs);
+    } else if (wanted === "HOW_TO_PLAY" || wanted === "STORY" || wanted === "GAME_OVER" || wanted === "WIN") {
+      gs.state = wanted;
+    }
+  }
+
   // Start loop
   useEffect(() => {
     gsRef.current = makeInitialState();
+    applyDebugState(gsRef.current);
     lastTimeRef.current = performance.now();
     rafRef.current = requestAnimationFrame(gameLoop);
     return () => cancelAnimationFrame(rafRef.current);
