@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
+import * as Sfx from "./audio";
 import lolaSpriteSrc from "../assets/lola_sprite.png";
 import dawnSpriteSrc from "../assets/dawn_sprite.png";
 import eggSpriteSrc from "../assets/egg_sprite.png";
@@ -108,10 +109,15 @@ interface GameStateData {
 // =====================================================================
 // AUDIO PLACEHOLDERS
 // =====================================================================
-function playSoundEggCollect() { /* TODO: play egg collect sound */ }
-function playSoundJump() { /* TODO: play jump sound */ }
-function playSoundLifeLost() { /* TODO: play life lost sound */ }
-function playSoundLevelComplete() { /* TODO: play level complete sound */ }
+const playSoundEggCollect = Sfx.playEggCollect;
+const playSoundLifeLost = Sfx.playHurt;
+const playSoundLevelComplete = Sfx.playLevelComplete;
+
+/** Second jump gets its own brighter sound so the double-jump is audible. */
+function playSoundJump(jumpsLeft: number) {
+  if (jumpsLeft <= 0) Sfx.playDoubleJump();
+  else Sfx.playJump();
+}
 
 // =====================================================================
 // CONSTANTS
@@ -1020,6 +1026,16 @@ function drawHUD(ctx: CanvasRenderingContext2D, lives: number, eggsCollected: nu
   ctx.fillStyle = "rgba(255,200,50,0.12)";
   ctx.fillRect(0, 38, CANVAS_W, 2);
 
+  // Muted indicator, so a silent game is obviously a choice and not a fault.
+  if (Sfx.isMuted()) {
+    ctx.save();
+    ctx.textAlign = "left";
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.font = "bold 11px monospace";
+    ctx.fillText("MUTED (M)", CANVAS_W / 2 + 74, 24);
+    ctx.restore();
+  }
+
   // Lives as heart icons (10 total, 2 rows of 5)
   for (let i = 0; i < 10; i++) {
     const col = i % 5;
@@ -1274,6 +1290,10 @@ function drawHowToPlay(ctx: CanvasRenderingContext2D) {
   ctx.fillText("◀ ▶  buttons  —  Move left / right", 120, 306);
   ctx.fillText("▲  button  —  Jump  (tap twice for double-jump!)", 120, 328);
   ctx.fillText("▼  button  —  Crouch / slow down", 120, 350);
+
+  ctx.fillStyle = "#ffcc55";
+  ctx.font = "bold 13px monospace";
+  ctx.fillText("🔊  M  —  mute / unmute the sound", 100, 378);
 
   // Prompt
   const alpha = 0.5 + Math.sin(Date.now() * 0.003) * 0.5;
@@ -1729,7 +1749,7 @@ export default function EggBeach() {
     gs.level++;
     if (gs.level > MAX_LEVELS) {
       gs.state = "WIN"; gs.winAnimTime = 0;
-      playSoundLevelComplete();
+      Sfx.playWin();
     } else {
       gs.state = "STORY"; gs.storyTimer = 0;
       playSoundLevelComplete();
@@ -1761,6 +1781,7 @@ export default function EggBeach() {
     }];
     if (gs.lives <= 0) {
       gs.state = "GAME_OVER";
+      Sfx.playGameOver();
     } else {
       gs.player.x = Math.max(gs.cameraX + 60, 120);
       gs.player.y = GROUND_Y - 40;
@@ -1784,7 +1805,13 @@ export default function EggBeach() {
 
     // ============ UPDATE ============
     if (gs.state === "INTRO") {
+      const was = gs.introTime;
       gs.introTime += dt / 60;
+      const crossed = (mark: number) => was < mark && gs.introTime >= mark;
+      if (crossed(0.15)) Sfx.playPaperRustle();
+      if (crossed(INTRO_NOTE_IN)) Sfx.playPaperRustle();
+      if (crossed(INTRO_RISE)) Sfx.playMagic();
+      if (crossed(INTRO_RISE_END - 0.4)) Sfx.playCluck();
       if (gs.introTime >= INTRO_END) gs.state = "START";
     } else if (gs.state === "START") {
       gs.lolaIdleTime += dt;
@@ -1851,7 +1878,7 @@ export default function EggBeach() {
         p.coyote = 0;
         p.jumpBuffer = 0;
         p.squash = -0.16;  // stretch upward out of the crouch
-        playSoundJump();
+        playSoundJump(p.jumpsLeft);
       }
 
       // Variable height: letting go early cuts the rise, so a tap is a hop.
@@ -1867,7 +1894,10 @@ export default function EggBeach() {
       const groundY = GROUND_Y - 40;
       if (p.y >= groundY) {
         // Squash proportional to impact, so a big drop lands heavier.
-        if (!p.onGround && p.vy > 4) p.squash = Math.min(0.32, p.vy * 0.022);
+        if (!p.onGround && p.vy > 4) {
+          p.squash = Math.min(0.32, p.vy * 0.022);
+          Sfx.playLand();
+        }
         p.y = groundY; p.vy = 0; p.onGround = true; p.jumpsLeft = 2;
       }
       if (p.y < 40) { p.y = 40; p.vy = 0; }
@@ -1881,6 +1911,7 @@ export default function EggBeach() {
       const distAhead = (dawn.x - p.x) * dawn.dir;
       if (distAhead < 80 && dawn.reverseCooldown <= 0) {
         dawn.dir = p.x < dawn.x ? 1 : -1; dawn.reverseCooldown = 55;
+        Sfx.playCluck();
       }
       if (Math.random() < DAWN_REVERSE_PROB[gs.level - 1] * dt && dawn.reverseCooldown <= 0) {
         dawn.dir *= -1; dawn.reverseCooldown = 110;
@@ -2160,6 +2191,8 @@ export default function EggBeach() {
       keysRef.current[k] = true;
       if (k === "w" || k === "ArrowUp" || k === " ") justPressedRef.current.jump = true;
       const gs = gsRef.current!;
+      Sfx.unlockAudio();
+      if (k === "m" || k === "M") { Sfx.toggleMute(); return; }
       if (gs.state === "INTRO") { gs.state = "START"; return; }
       if (k === "Enter" || k === " ") {
         if (gs.state === "START") startGame();
@@ -2235,6 +2268,7 @@ export default function EggBeach() {
       touchRef.current[key] = true;
       if (key === "jump") {
         justPressedRef.current.jump = true;
+        Sfx.unlockAudio();
         const gs = gsRef.current!;
         if (gs.state === "INTRO") { gs.state = "START"; return; }
         if (gs.state === "START") startGame();
@@ -2270,6 +2304,7 @@ export default function EggBeach() {
   }, []);
 
   const handleCanvasTap = () => {
+    Sfx.unlockAudio();
     const gs = gsRef.current!;
     if (gs.state === "INTRO") { gs.state = "START"; return; }
     if (gs.state === "START") startGame();
