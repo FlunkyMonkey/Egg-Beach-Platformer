@@ -31,6 +31,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Docker tags must be lowercase and the owner is "FlunkyMonkey", so
+      # github.repository_owner cannot be used verbatim.
+      - name: Resolve image name
+        id: img
+        run: echo "ref=ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/egg-beach-platformer:sha-${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
       - name: Typecheck and build
         run: |
           npm ci
@@ -51,14 +57,14 @@ jobs:
           context: .
           platforms: linux/amd64
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/egg-beach-platformer:sha-${{ github.sha }}
+          tags: ${{ steps.img.outputs.ref }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Point the manifest at the image just built
         run: |
           set -euo pipefail
-          image="ghcr.io/${{ github.repository_owner }}/egg-beach-platformer:sha-${{ github.sha }}"
+          image="${{ steps.img.outputs.ref }}"
           sed -i -E "s|^(\s*image: ).*$|\1${image}|" deploy/deployment.yaml
           grep -q "${image}" deploy/deployment.yaml
 
