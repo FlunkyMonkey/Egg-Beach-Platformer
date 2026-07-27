@@ -34,7 +34,7 @@ spec:
           # main — the tag is the commit the image was built from, so what's running
           # is always traceable to a commit and `git revert` is a real rollback.
           # Don't hand-edit it; change the code and push.
-          image: ghcr.io/flunkymonkey/egg-beach-platformer:sha-f44805e7a50cdc0b3bfb82f755ef67c39df53b5b
+          image: ghcr.io/flunkymonkey/egg-beach-platformer:sha-b8c0370dd466327116d00d81b6994451fcf3bf7f
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
