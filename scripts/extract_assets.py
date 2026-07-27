@@ -41,6 +41,11 @@ PHOTOS = {
     "title": "IMG_4551_1776200089550.jpg",
     # The crabs live on the sandbar of the ocean drawing.
     "crab": "IMG_4546_1776200131470.jpg",
+    # For the intro: the title page kept as a photograph, paper edges and all,
+    # plus the two notes she wrote in the margins.
+    "intro_page": "IMG_4551_1776200089550.jpg",
+    "note_dawn": "IMG_4541_1776200154020.jpg",
+    "note_egg": "IMG_4542_1776200148711.jpg",
 }
 
 ROI = {
@@ -62,6 +67,11 @@ ROI = {
     "title": (0.13, 0.03, 0.93, 0.97),
     # The sandbar strip holding her crabs, in the ocean drawing.
     "crab": (0.22, 0.62, 0.42, 0.80),
+    # Deliberately looser than the title crop above — the intro wants the page to
+    # look like a page, so the paper edge stays in.
+    "intro_page": (0.09, 0.005, 0.975, 0.995),
+    "note_dawn": (0.06, 0.838, 0.95, 0.995),
+    "note_egg": (0.03, 0.772, 0.82, 0.945),
 }
 
 
@@ -353,6 +363,9 @@ BACKGROUNDS = {
     "bg_volcano": ("volcano", 1200),
     "title_art": ("title", 900),
     "win_screen": ("win", 900),
+    "intro_page": ("intro_page", 1000),
+    "note_dawn": ("note_dawn", 900),
+    "note_egg": ("note_egg", 800),
 }
 
 

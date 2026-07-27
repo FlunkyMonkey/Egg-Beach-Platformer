@@ -5,6 +5,8 @@ import eggSpriteSrc from "../assets/egg_sprite.png";
 import jellyfishSpriteSrc from "../assets/jellyfish_sprite.png";
 import crabSpriteSrc from "../assets/crab_sprite.png";
 import crabGreenSpriteSrc from "../assets/crab_green_sprite.png";
+import introPageSrc from "../assets/intro_page.png";
+import noteDawnSrc from "../assets/note_dawn.png";
 import titleArtSrc from "../assets/title_art.png";
 import winScreenSrc from "../assets/win_screen.png";
 import bgBeachSrc from "../assets/bg_beach.png";
@@ -18,6 +20,8 @@ let _eggSprite: HTMLImageElement | null = null;
 let _jellyfishSprite: HTMLImageElement | null = null;
 let _crabSprite: HTMLImageElement | null = null;
 let _crabGreenSprite: HTMLImageElement | null = null;
+let _introPage: HTMLImageElement | null = null;
+let _noteDawn: HTMLImageElement | null = null;
 let _titleArt: HTMLImageElement | null = null;
 let _winScreen: HTMLImageElement | null = null;
 let _bgBeach: HTMLImageElement | null = null;
@@ -28,7 +32,7 @@ let _bgVolcano: HTMLImageElement | null = null;
 // =====================================================================
 // TYPES
 // =====================================================================
-type GameState = "START" | "HOW_TO_PLAY" | "STORY" | "PLAYING" | "GAME_OVER" | "WIN";
+type GameState = "INTRO" | "START" | "HOW_TO_PLAY" | "STORY" | "PLAYING" | "GAME_OVER" | "WIN";
 type EggColor = "red" | "blue" | "green" | "yellow" | "purple";
 
 interface Egg {
@@ -95,6 +99,7 @@ interface GameStateData {
   // Meta
   bgScrollX: number;
   storyTimer: number;
+  introTime: number;
   winAnimTime: number;
   lolaIdleFrame: number;
   lolaIdleTime: number;
@@ -1284,6 +1289,158 @@ function drawHowToPlay(ctx: CanvasRenderingContext2D) {
 // =====================================================================
 // START SCREEN
 // =====================================================================
+// Beat boundaries for the intro, in seconds.
+const INTRO_PAGE_IN = 1.0;
+const INTRO_NOTE_IN = 1.5;
+const INTRO_NOTE_OUT = 4.2;
+const INTRO_RISE = 4.4;
+const INTRO_RISE_END = 6.0;
+const INTRO_DISSOLVE = 6.4;
+const INTRO_END = 7.8;
+
+const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
+/** Ease in and out, so nothing in the intro starts or stops abruptly. */
+const smooth = (a: number, b: number, t: number) => {
+  const x = clamp01((t - a) / (b - a));
+  return x * x * (3 - 2 * x);
+};
+
+/**
+ * The opening: her sketchbook, and then her drawing getting up off the page.
+ *
+ * The whole point is to show that the game is literally made of her paper — so it
+ * opens on the unretouched photograph, binding and paper edge included, holds long
+ * enough to be recognised, shows the rules she wrote in her own handwriting, and
+ * only then lets the drawing peel off and become a character.
+ */
+function drawIntro(ctx: CanvasRenderingContext2D, t: number, frame: number) {
+  ctx.fillStyle = "#0d0b14";
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+  const pageIn = smooth(0, INTRO_PAGE_IN, t);
+  const dissolve = smooth(INTRO_DISSOLVE, INTRO_END, t);
+
+  // The beach bleeds through underneath as the page dissolves away.
+  if (dissolve > 0) {
+    ctx.save();
+    ctx.globalAlpha = dissolve;
+    const sky = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
+    sky.addColorStop(0, "#7ec8f0");
+    sky.addColorStop(0.62, "#bfe6f7");
+    sky.addColorStop(0.63, "#123f8f");
+    sky.addColorStop(0.73, "#e8c86a");
+    sky.addColorStop(1, "#c8974a");
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    ctx.restore();
+  }
+
+  if (!_introPage) return;
+
+  // The page is portrait and the screen is wide, so there is always space either
+  // side. Filling it with a blurred, darkened copy of the same photo reads as a
+  // table the sketchbook is lying on, rather than as black bars.
+  ctx.save();
+  ctx.globalAlpha = pageIn * 0.55 * (1 - dissolve * 0.7);
+  ctx.filter = "blur(26px) brightness(0.45)";
+  const bw = CANVAS_W * 1.2;
+  const bh = bw * (_introPage.height / _introPage.width);
+  ctx.drawImage(_introPage, CANVAS_W / 2 - bw / 2, CANVAS_H / 2 - bh / 2, bw, bh);
+  ctx.restore();
+
+  // Slow push in across the whole sequence — barely perceptible, but it stops the
+  // held photograph feeling like a frozen error.
+  const zoom = 1.0 + 0.06 * clamp01(t / INTRO_END);
+  const ph = CANVAS_H * 0.92 * zoom;
+  const pw = ph * (_introPage.width / _introPage.height);
+  const px = CANVAS_W / 2 - pw / 2;
+  const py = CANVAS_H / 2 - ph / 2;
+
+  // Deliberately NOT faded out: the start screen shows this same card, so holding
+  // the page through the dissolve makes the hand-off continuous instead of the art
+  // blinking away and immediately reappearing.
+  ctx.save();
+  ctx.globalAlpha = pageIn;
+  ctx.shadowColor = "rgba(0,0,0,0.55)";
+  ctx.shadowBlur = 26;
+  ctx.shadowOffsetY = 10;
+  ctx.drawImage(_introPage, px, py, pw, ph);
+  ctx.restore();
+
+  // Her note, laid on the page like a scrap of paper.
+  const noteIn = smooth(INTRO_NOTE_IN, INTRO_NOTE_IN + 0.7, t);
+  const noteOut = smooth(INTRO_NOTE_OUT, INTRO_NOTE_OUT + 0.6, t);
+  if (_noteDawn && noteIn > 0 && noteOut < 1) {
+    const nw = CANVAS_W * 0.56;
+    const nh = nw * (_noteDawn.height / _noteDawn.width);
+    ctx.save();
+    ctx.globalAlpha = noteIn * (1 - noteOut);
+    ctx.translate(CANVAS_W / 2, CANVAS_H * 0.78 + (1 - noteIn) * 40);
+    ctx.rotate(-0.035);
+    ctx.shadowColor = "rgba(0,0,0,0.45)";
+    ctx.shadowBlur = 14;
+    ctx.shadowOffsetY = 6;
+    ctx.drawImage(_noteDawn, -nw / 2, -nh / 2, nw, nh);
+    ctx.restore();
+  }
+
+  // The drawing gets up. She starts flattened onto the paper and stands into the
+  // rig, so the moment reads as the picture becoming the character.
+  const rise = smooth(INTRO_RISE, INTRO_RISE_END, t);
+  if (rise > 0 && _lolaSprite) {
+    const feetY = py + ph * 0.86;
+    const lx = CANVAS_W / 2 - pw * 0.16;
+
+    ctx.save();
+    ctx.globalAlpha = 1 - dissolve * 0.35;
+    ctx.fillStyle = `rgba(0,0,0,${0.10 + rise * 0.18})`;
+    ctx.beginPath();
+    ctx.ellipse(lx, feetY + 2, 20 * rise + 8, 4.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.translate(lx, feetY);
+    ctx.scale(1, 0.08 + 0.92 * rise);
+    ctx.translate(-lx, -feetY);
+    drawLola(ctx, lx, feetY - 40, 1, false, frame, 0, rise * PLAYER_SPEED, false, 0);
+    ctx.restore();
+  }
+
+  // Dawn breaks away and flaps off the top of the page — the chase starting.
+  const flee = smooth(INTRO_RISE_END - 0.5, INTRO_END, t);
+  if (flee > 0 && _dawnSprite) {
+    ctx.save();
+    ctx.globalAlpha = 1 - flee * 0.85;
+    drawDawn(
+      ctx,
+      CANVAS_W / 2 + pw * 0.10 + flee * 210,
+      py + ph * 0.80 - flee * 190,
+      1,
+      frame * 2.2,
+    );
+    ctx.restore();
+  }
+
+  // A crab scuttles across the paper and off the edge.
+  const scuttle = smooth(INTRO_RISE - 0.6, INTRO_END - 0.4, t);
+  if (scuttle > 0 && scuttle < 1 && _crabSprite) {
+    drawCrab(
+      ctx,
+      {
+        x: px + pw * 0.12 + scuttle * pw * 0.95,
+        y: py + ph * 0.90,
+        dir: 1, speed: 1, kind: 0, phase: 0, alert: 0, pauseTimer: 0, homeX: 0,
+      },
+      t,
+    );
+  }
+
+  const prompt = 0.4 + Math.sin(t * 4) * 0.25;
+  ctx.textAlign = "center";
+  ctx.fillStyle = `rgba(255,255,255,${prompt * (1 - dissolve)})`;
+  ctx.font = "bold 12px monospace";
+  ctx.fillText("press any key to skip", CANVAS_W / 2, CANVAS_H - 12);
+}
+
 function drawStartScreen(ctx: CanvasRenderingContext2D, lolaFrame: number, worldTime: number) {
   // Her title card is the whole point of this screen, so it is shown as the
   // artwork it is — full size, full opacity, centred. The previous version faded
@@ -1535,6 +1692,7 @@ export default function EggBeach() {
   const gsRef = useRef<GameStateData | null>(null);
   const keysRef = useRef<Record<string, boolean>>({});
   const rafRef = useRef<number>(0);
+  const controlsRef = useRef<HTMLDivElement | null>(null);
   const lastTimeRef = useRef<number>(0);
   const touchRef = useRef<{ left: boolean; right: boolean; jump: boolean; crouch: boolean }>({ left: false, right: false, jump: false, crouch: false });
   const justPressedRef = useRef<{ jump: boolean }>({ jump: false });
@@ -1543,14 +1701,14 @@ export default function EggBeach() {
 
   function makeInitialState(): GameStateData {
     return {
-      state: "START", level: 1, lives: 10,
+      state: "INTRO", level: 1, lives: 10,
       eggsCollected: 0, score: 0,
       player: { x: 100, y: GROUND_Y - 40, vx: 0, vy: 0, onGround: true, jumpsLeft: 2, crouching: false, facing: 1, frameTime: 0, frame: 0, coyote: 0, jumpBuffer: 0, squash: 0, jumpHeld: false },
       dawn: { x: 360, y: GROUND_Y - 35, vx: 2.8, vy: 0, onGround: true, dir: 1, frameTime: 0, frame: 0, reverseCooldown: 0 },
       cameraX: 0, eggs: [], crabs: [], jellyfish: [], branches: [], roots: [],
       clouds: [], acorns: [], lavaDrops: [], lavaDropNextId: 0, lavaSpawnTimer: 0,
       hurtFlash: 0, shake: 0, hurtHearts: [], eggBanner: null,
-      bgScrollX: 0, storyTimer: 0, winAnimTime: 0, lolaIdleFrame: 0, lolaIdleTime: 0,
+      bgScrollX: 0, storyTimer: 0, introTime: 0, winAnimTime: 0, lolaIdleFrame: 0, lolaIdleTime: 0,
     };
   }
 
@@ -1625,7 +1783,10 @@ export default function EggBeach() {
     if (damageCooldownRef.current > 0) damageCooldownRef.current -= dt;
 
     // ============ UPDATE ============
-    if (gs.state === "START") {
+    if (gs.state === "INTRO") {
+      gs.introTime += dt / 60;
+      if (gs.introTime >= INTRO_END) gs.state = "START";
+    } else if (gs.state === "START") {
       gs.lolaIdleTime += dt;
       if (gs.lolaIdleTime > 8) { gs.lolaIdleTime = 0; gs.lolaIdleFrame = (gs.lolaIdleFrame + 1) % 8; }
     } else if (gs.state === "WIN") {
@@ -1869,9 +2030,20 @@ export default function EggBeach() {
     }
 
     // ============ DRAW ============
+    // Hide the on-screen pad during the intro so the opening reads as a film.
+    // Driven straight from the loop because the game state lives in a ref and
+    // never triggers a React re-render.
+    if (controlsRef.current) {
+      const hide = gs.state === "INTRO";
+      controlsRef.current.style.opacity = hide ? "0" : "1";
+      controlsRef.current.style.pointerEvents = hide ? "none" : "";
+    }
+
     ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
 
-    if (gs.state === "START") {
+    if (gs.state === "INTRO") {
+      drawIntro(ctx, gs.introTime, gs.lolaIdleFrame + worldTime * 6);
+    } else if (gs.state === "START") {
       drawStartScreen(ctx, gs.lolaIdleFrame, worldTime);
     } else if (gs.state === "HOW_TO_PLAY") {
       drawHowToPlay(ctx);
@@ -1988,6 +2160,7 @@ export default function EggBeach() {
       keysRef.current[k] = true;
       if (k === "w" || k === "ArrowUp" || k === " ") justPressedRef.current.jump = true;
       const gs = gsRef.current!;
+      if (gs.state === "INTRO") { gs.state = "START"; return; }
       if (k === "Enter" || k === " ") {
         if (gs.state === "START") startGame();
         else if (gs.state === "HOW_TO_PLAY") { gs.state = "STORY"; gs.storyTimer = 0; }
@@ -2039,8 +2212,11 @@ export default function EggBeach() {
     if (wanted === "PLAYING") {
       gs.state = "PLAYING";
       initLevel(gs.level, gs);
-    } else if (wanted === "HOW_TO_PLAY" || wanted === "STORY" || wanted === "GAME_OVER" || wanted === "WIN") {
+    } else if (wanted === "HOW_TO_PLAY" || wanted === "STORY" || wanted === "GAME_OVER" || wanted === "WIN" || wanted === "START") {
       gs.state = wanted;
+    } else if (wanted === "INTRO") {
+      gs.state = "INTRO";
+      gs.introTime = Number(params.get("t") ?? 0);
     }
   }
 
@@ -2060,6 +2236,7 @@ export default function EggBeach() {
       if (key === "jump") {
         justPressedRef.current.jump = true;
         const gs = gsRef.current!;
+        if (gs.state === "INTRO") { gs.state = "START"; return; }
         if (gs.state === "START") startGame();
         else if (gs.state === "HOW_TO_PLAY") { gs.state = "STORY"; gs.storyTimer = 0; }
         else if (gs.state === "STORY") startLevel();
@@ -2082,6 +2259,8 @@ export default function EggBeach() {
     load(jellyfishSpriteSrc, i => { _jellyfishSprite = i; });
     load(crabSpriteSrc, i => { _crabSprite = i; });
     load(crabGreenSpriteSrc, i => { _crabGreenSprite = i; });
+    load(introPageSrc, i => { _introPage = i; });
+    load(noteDawnSrc, i => { _noteDawn = i; });
     load(titleArtSrc, i => { _titleArt = i; });
     load(winScreenSrc, i => { _winScreen = i; });
     load(bgBeachSrc, i => { _bgBeach = i; });
@@ -2092,6 +2271,7 @@ export default function EggBeach() {
 
   const handleCanvasTap = () => {
     const gs = gsRef.current!;
+    if (gs.state === "INTRO") { gs.state = "START"; return; }
     if (gs.state === "START") startGame();
     else if (gs.state === "HOW_TO_PLAY") { gs.state = "STORY"; gs.storyTimer = 0; }
     else if (gs.state === "STORY") startLevel();
@@ -2109,7 +2289,7 @@ export default function EggBeach() {
       </div>
 
       {/* Mobile Controls */}
-      <div className="absolute bottom-0 left-0 right-0 flex justify-between items-end px-4 pb-4 pointer-events-none">
+      <div ref={controlsRef} className="absolute bottom-0 left-0 right-0 flex justify-between items-end px-4 pb-4 pointer-events-none" style={{ transition: "opacity 350ms ease" }}>
         <div className="flex gap-2 pointer-events-auto">
           {(["left", "right"] as const).map(dir => (
             <button key={dir}

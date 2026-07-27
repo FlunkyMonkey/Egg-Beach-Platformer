@@ -34,16 +34,26 @@ for _ in $(seq 1 40); do
 done
 
 shot() {
-  local name="$1" query="$2"
+  local name="$1" query="$2" budget="${3:-6000}"
   "$CHROME" --headless --disable-gpu --no-sandbox \
-    --virtual-time-budget=6000 --window-size=1280,800 \
+    --virtual-time-budget="$budget" --window-size=1280,800 \
     --screenshot="$OUT/$name.png" \
     "http://localhost:$PORT/$query" >/dev/null 2>&1
   echo "  $OUT/$name.png"
 }
 
+# The intro plays on load, so every other capture has to skip past it with
+# ?state=. Intro beats are captured by seeding the clock just before the beat and
+# giving the page only enough virtual time to reach it.
+intro_beat() { shot "intro-$1" "?state=INTRO&t=$2" 1100; }
+
 echo "Capturing:"
-shot title        ""
+intro_beat 1-page   0.2
+intro_beat 2-note   2.0
+intro_beat 3-rise   4.3
+intro_beat 4-alive  5.6
+intro_beat 5-fade   6.6
+shot title        "?state=START"
 shot lola-run-1   "?state=PLAYING&level=1&run=1"
 shot lola-run-2   "?state=PLAYING&level=3&run=1"
 shot how-to-play  "?state=HOW_TO_PLAY"
