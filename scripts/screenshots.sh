@@ -33,6 +33,9 @@ for _ in $(seq 1 40); do
   sleep 0.25
 done
 
+# Gameplay captures pass warp=N so the level has actually been simulated. Headless
+# Chrome fast-forwards timers but barely fires requestAnimationFrame, so without it
+# every "gameplay" screenshot is really frame 2 — the level before anything moves.
 shot() {
   local name="$1" query="$2" budget="${3:-6000}"
   "$CHROME" --headless --disable-gpu --no-sandbox \
@@ -60,9 +63,9 @@ shot how-to-play  "?state=HOW_TO_PLAY"
 shot story-1      "?state=STORY&level=1"
 shot story-2      "?state=STORY&level=2"
 shot story-4      "?state=STORY&level=4"
-shot level-1-beach   "?state=PLAYING&level=1"
-shot level-2-ocean   "?state=PLAYING&level=2"
-shot level-3-forest  "?state=PLAYING&level=3"
-shot level-4-volcano "?state=PLAYING&level=4"
+shot level-1-beach   "?state=PLAYING&level=1&warp=520"
+shot level-2-ocean   "?state=PLAYING&level=2&warp=420"
+shot level-3-forest  "?state=PLAYING&level=3&warp=420"
+shot level-4-volcano "?state=PLAYING&level=4&warp=1500"
 shot win          "?state=WIN"
 shot game-over    "?state=GAME_OVER"

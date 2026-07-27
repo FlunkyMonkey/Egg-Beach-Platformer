@@ -46,6 +46,15 @@ let _bgVolcano: HTMLImageElement | null = null;
 // TYPES
 // =====================================================================
 type GameState = "INTRO" | "START" | "HOW_TO_PLAY" | "STORY" | "PLAYING" | "GAME_OVER" | "WIN";
+/**
+ * What Dawn is doing.
+ *
+ * She used to run at a fixed speed and flip direction on a timer, so you trailed
+ * her for four levels and catching her was a collision rather than an event. Her
+ * own note is the design brief: "Runs the opisit Dreson then Lola. Dose not stop
+ * chtie the end. Gose kinda Fast."
+ */
+type DawnMood = "run" | "taunt" | "bolt" | "tired" | "stumble";
 type EggColor = "red" | "blue" | "green" | "yellow" | "purple";
 
 interface Egg {
@@ -92,6 +101,10 @@ interface GameStateData {
     x: number; y: number; vx: number; vy: number;
     onGround: boolean; dir: number; frameTime: number; frame: number;
     reverseCooldown: number;
+    mood: DawnMood;
+    moodTimer: number;
+    stamina: number;   // 1 = fresh, 0 = winded
+    tauntFlap: number;
   };
   cameraX: number;
   cameraY: number;
@@ -100,6 +113,10 @@ interface GameStateData {
   spawnX: number;
   spawnY: number;
   invuln: number;
+  dashCharges: number;
+  dashTime: number;     // frames of dash remaining
+  dashCooldown: number;
+  dashTrail: { x: number; y: number; life: number }[];
   eggs: Egg[];
   crabs: Crab[];
   jellyfish: Jellyfish[];
@@ -110,6 +127,9 @@ interface GameStateData {
   lavaDrops: LavaDrop[];
   lavaDropNextId: number;
   lavaSpawnTimer: number;
+  tide: number;       // L1: water surface Y
+  lavaFloor: number;  // L4: rising lava surface Y
+  currentPhase: number; // L2
   // FX
   hurtFlash: number;
   shake: number;
@@ -148,7 +168,6 @@ const UNDERWATER_GRAVITY = 0.18;
 const JUMP_FORCE = -13;
 const UNDERWATER_JUMP_FORCE = -7;
 const PLAYER_SPEED = 4.8;
-const LEVEL_LENGTH = 5000;
 const EGG_COLORS: EggColor[] = ["red", "blue", "green", "yellow", "purple"];
 const MAX_LEVELS = 4;
 // Per level, not per run. Five is plenty once a death costs you a checkpoint
@@ -336,10 +355,26 @@ function drawLola(
   ctx.restore();
 }
 
-function drawDawn(ctx: CanvasRenderingContext2D, x: number, y: number, dir: number, frame: number) {
+function drawDawn(
+  ctx: CanvasRenderingContext2D, x: number, y: number, dir: number, frame: number,
+  mood: DawnMood = "run", worldTime = 0,
+) {
   ctx.save();
   ctx.translate(x, y + 27);
-  ctx.scale(dir * 1.5, 1.5);
+
+  // Her mood has to be readable at a glance or the chase AI is invisible.
+  if (mood === "stumble") {
+    // Tipped over, legs in the air.
+    ctx.rotate(Math.sin(worldTime * 22) * 0.12 - dir * 0.55);
+  } else if (mood === "bolt") {
+    ctx.rotate(dir * 0.20);              // leaning into the sprint
+  } else if (mood === "tired") {
+    ctx.translate(0, Math.abs(Math.sin(worldTime * 5)) * 2);  // panting
+  }
+
+  // Taunting means turning round to look at you, so the flip is deliberate.
+  const facing = mood === "taunt" ? -dir : dir;
+  ctx.scale(facing * 1.5, 1.5);
   ctx.translate(0, -27);
 
   const legBob = Math.sin(frame * 1.2) * 4;
@@ -353,7 +388,11 @@ function drawDawn(ctx: CanvasRenderingContext2D, x: number, y: number, dir: numb
 
     const dw = 48, dh = dw * (_dawnSprite.height / _dawnSprite.width);
     const bodyBob = Math.sin(frame * 1.2) * 1.5;
-    const wingFlap = Math.sin(frame * 1.2) * 0.08;
+    const wingFlap = mood === "taunt"
+      ? Math.sin(worldTime * 16) * 0.34      // gloating flap
+      : mood === "bolt"
+        ? Math.sin(frame * 2.6) * 0.16
+        : Math.sin(frame * 1.2) * 0.08;
     ctx.save();
     ctx.rotate(wingFlap);
 
@@ -1059,7 +1098,7 @@ const TERRAIN_COLOURS = [
 function drawTerrain(ctx: CanvasRenderingContext2D, gs: GameStateData) {
   const c = TERRAIN_COLOURS[gs.level - 1];
   const camX = gs.cameraX;
-  const camY = gs.cameraY;
+  const camY = 0;  // vertical scroll is applied by a transform around the world
 
   for (const span of gs.terrain.spans) {
     const x0 = span.x0 - camX;
@@ -1110,6 +1149,52 @@ function drawTerrain(ctx: CanvasRenderingContext2D, gs: GameStateData) {
   }
 }
 
+/** The tide (level 1) and the rising lava (level 4), drawn over the world. */
+function drawLevelHazardSurface(ctx: CanvasRenderingContext2D, gs: GameStateData, worldTime: number) {
+  if (gs.level === 1) {
+    const y = gs.tide;
+    const g = ctx.createLinearGradient(0, y - 10, 0, y + 160);
+    g.addColorStop(0, "rgba(60,150,225,0.46)");
+    g.addColorStop(1, "rgba(15,60,140,0.70)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, y, CANVAS_W, CANVAS_H + 200);
+
+    ctx.strokeStyle = "rgba(255,255,255,0.55)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let x = 0; x <= CANVAS_W; x += 8) {
+      const wy = y + Math.sin(x * 0.035 + worldTime * 2.4) * 3;
+      if (x === 0) ctx.moveTo(x, wy); else ctx.lineTo(x, wy);
+    }
+    ctx.stroke();
+  } else if (gs.level === 4) {
+    const y = gs.lavaFloor;
+    if (y > CANVAS_H + 320) return;
+    const g = ctx.createLinearGradient(0, y - 14, 0, y + 130);
+    g.addColorStop(0, "rgba(255,220,90,0.95)");
+    g.addColorStop(0.25, "rgba(240,90,20,0.95)");
+    g.addColorStop(1, "rgba(120,15,5,0.98)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, y, CANVAS_W, CANVAS_H + 320);
+
+    ctx.strokeStyle = "rgba(255,240,170,0.9)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (let x = 0; x <= CANVAS_W; x += 7) {
+      const wy = y + Math.sin(x * 0.05 + worldTime * 3.4) * 4;
+      if (x === 0) ctx.moveTo(x, wy); else ctx.lineTo(x, wy);
+    }
+    ctx.stroke();
+
+    for (let i = 0; i < 10; i++) {
+      const ex = ((i * 91 + worldTime * 22) % (CANVAS_W + 40)) - 20;
+      const ey = y - 6 - ((worldTime * 34 + i * 29) % 70);
+      ctx.fillStyle = `rgba(255,${140 + (i % 4) * 20},50,${0.7 - (y - ey) / 100})`;
+      ctx.beginPath(); ctx.arc(ex, ey, 2 + (i % 3), 0, Math.PI * 2); ctx.fill();
+    }
+  }
+}
+
 /** Checkpoint nests. Bright once banked, so progress is legible at a glance. */
 function drawCheckpoint(ctx: CanvasRenderingContext2D, x: number, y: number, reached: boolean, worldTime: number) {
   ctx.save();
@@ -1144,12 +1229,27 @@ function drawCheckpoint(ctx: CanvasRenderingContext2D, x: number, y: number, rea
   ctx.restore();
 }
 
-function drawHUD(ctx: CanvasRenderingContext2D, lives: number, eggsCollected: number, level: number) {
+function drawHUD(ctx: CanvasRenderingContext2D, lives: number, eggsCollected: number, level: number, dashCharges = 0) {
   ctx.fillStyle = "rgba(0,0,0,0.6)";
   ctx.fillRect(0, 0, CANVAS_W, 40);
   // Bottom edge glow
   ctx.fillStyle = "rgba(255,200,50,0.12)";
   ctx.fillRect(0, 38, CANVAS_W, 2);
+
+  // Dash charges, so the reward for collecting is visible while you play.
+  if (dashCharges > 0) {
+    ctx.save();
+    ctx.textAlign = "left";
+    for (let i = 0; i < dashCharges; i++) {
+      const bx = CANVAS_W / 2 - 108 + i * 17;
+      ctx.fillStyle = "#ffd23f";
+      ctx.beginPath();
+      ctx.moveTo(bx + 6, 10); ctx.lineTo(bx, 21); ctx.lineTo(bx + 5, 21);
+      ctx.lineTo(bx + 2, 30); ctx.lineTo(bx + 11, 18); ctx.lineTo(bx + 6, 18);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
 
   // Muted indicator, so a silent game is obviously a choice and not a fault.
   if (Sfx.isMuted()) {
@@ -1816,6 +1916,7 @@ function initLevel(level: number, gs: GameStateData) {
   gs.spawnY = (groundAt(gs.terrain, 100) ?? BASE_GROUND) - 40;
   gs.invuln = 0;
   gs.cameraY = 0;
+  gs.dashCharges = 0; gs.dashTime = 0; gs.dashCooldown = 0; gs.dashTrail = [];
   gs.lives = LIVES_PER_LEVEL;
 
   gs.player.x = gs.spawnX; gs.player.y = gs.spawnY;
@@ -1829,6 +1930,7 @@ function initLevel(level: number, gs: GameStateData) {
   gs.dawn.vx = DAWN_SPEED[level - 1]; gs.dawn.vy = 0;
   gs.dawn.onGround = true; gs.dawn.dir = 1;
   gs.dawn.frame = 0; gs.dawn.frameTime = 0; gs.dawn.reverseCooldown = 0;
+  gs.dawn.mood = "run"; gs.dawn.moodTimer = 0; gs.dawn.stamina = 1; gs.dawn.tauntFlap = 0;
 
   gs.cameraX = 0;
   gs.eggsCollected = 0;
@@ -1840,6 +1942,11 @@ function initLevel(level: number, gs: GameStateData) {
   gs.lavaDrops = [];
   gs.lavaDropNextId = 0;
   gs.lavaSpawnTimer = 0;
+  gs.tide = BASE_GROUND + 40;
+  // Starts well below the level and climbs. Reset per life so a checkpoint is a
+  // genuine reprieve rather than dropping you back into the fire.
+  gs.lavaFloor = BASE_GROUND + 120;
+  gs.currentPhase = 0;
 
   // Eggs. Every other one goes on a platform, so collecting is a reason to climb
   // rather than something that happens while walking. Her note says to collect
@@ -1927,7 +2034,7 @@ export default function EggBeach() {
   const rafRef = useRef<number>(0);
   const controlsRef = useRef<HTMLDivElement | null>(null);
   const lastTimeRef = useRef<number>(0);
-  const touchRef = useRef<{ left: boolean; right: boolean; jump: boolean; crouch: boolean }>({ left: false, right: false, jump: false, crouch: false });
+  const touchRef = useRef<{ left: boolean; right: boolean; jump: boolean; crouch: boolean; dash: boolean }>({ left: false, right: false, jump: false, crouch: false, dash: false });
   const justPressedRef = useRef<{ jump: boolean }>({ jump: false });
   // Damage cooldown to avoid multi-hit per frame
   const damageCooldownRef = useRef<number>(0);
@@ -1937,12 +2044,14 @@ export default function EggBeach() {
       state: "INTRO", level: 1, lives: LIVES_PER_LEVEL,
       eggsCollected: 0, score: 0,
       player: { x: 100, y: GROUND_Y - 40, vx: 0, vy: 0, onGround: true, jumpsLeft: 2, crouching: false, facing: 1, frameTime: 0, frame: 0, coyote: 0, jumpBuffer: 0, squash: 0, jumpHeld: false },
-      dawn: { x: 360, y: GROUND_Y - 35, vx: 2.8, vy: 0, onGround: true, dir: 1, frameTime: 0, frame: 0, reverseCooldown: 0 },
+      dawn: { x: 360, y: GROUND_Y - 35, vx: 2.8, vy: 0, onGround: true, dir: 1, frameTime: 0, frame: 0, reverseCooldown: 0, mood: "run", moodTimer: 0, stamina: 1, tauntFlap: 0 },
       cameraX: 0, cameraY: 0,
       terrain: compile(LEVEL_BEATS[0]),
       checkpoints: [], spawnX: 100, spawnY: BASE_GROUND - 40, invuln: 0,
+      dashCharges: 0, dashTime: 0, dashCooldown: 0, dashTrail: [],
       eggs: [], crabs: [], jellyfish: [], branches: [], roots: [],
       clouds: [], acorns: [], lavaDrops: [], lavaDropNextId: 0, lavaSpawnTimer: 0,
+      tide: BASE_GROUND + 40, lavaFloor: BASE_GROUND + 120, currentPhase: 0,
       hurtFlash: 0, shake: 0, hurtHearts: [], eggBanner: null,
       bgScrollX: 0, storyTimer: 0, introTime: 0, winAnimTime: 0, lolaIdleFrame: 0, lolaIdleTime: 0,
     };
@@ -2007,6 +2116,8 @@ export default function EggBeach() {
       gs.player.vx = 0; gs.player.vy = 0;
       gs.player.jumpsLeft = 2;
       gs.invuln = 110;
+      // Give the lava back the ground it took, or a respawn is instant death.
+      gs.lavaFloor = Math.max(gs.lavaFloor, gs.spawnY + 150);
       gs.cameraX = Math.max(0, Math.min(gs.spawnX - CANVAS_W * 0.35, gs.terrain.length - CANVAS_W));
     }
   }, []);
@@ -2018,7 +2129,11 @@ export default function EggBeach() {
     if (!ctx) return;
     const gs = gsRef.current!;
 
-    const dt = Math.min((timestamp - lastTimeRef.current) / 16.667, 3);
+    // Clamped at both ends. The upper bound stops a long stall teleporting
+    // everything through walls; the lower bound matters because a timestamp that
+    // arrives behind the last one yields a negative dt, which runs every lerp in
+    // the game backwards — the camera drove itself off down the level.
+    const dt = Math.max(0, Math.min((timestamp - lastTimeRef.current) / 16.667, 3));
     lastTimeRef.current = timestamp;
     const worldTime = timestamp / 1000;
 
@@ -2081,6 +2196,7 @@ export default function EggBeach() {
       const holdingJump = !!(keys["w"] || keys["ArrowUp"] || keys[" "] || touch.jump);
       const wantJump = holdingJump || justPressedRef.current.jump;
       const wantCrouch = keys["s"] || keys["ArrowDown"] || touch.crouch;
+      const wantDash = keys["Shift"] || keys["e"] || touch.dash;
       justPressedRef.current.jump = false;
 
       const spd = wantCrouch ? PLAYER_SPEED * 0.5 : PLAYER_SPEED;
@@ -2094,7 +2210,27 @@ export default function EggBeach() {
       else p.vx *= Math.pow(friction, dt);
       if (Math.abs(p.vx) < 0.05) p.vx = 0;
 
-      p.crouching = wantCrouch && p.onGround;
+      p.crouching = wantCrouch && p.onGround && gs.dashTime <= 0;
+
+      // Dash: a burst that closes distance on Dawn. Spending a charge is the
+      // decision the eggs now buy you.
+      gs.dashCooldown = Math.max(0, gs.dashCooldown - dt);
+      if (wantDash && gs.dashCharges > 0 && gs.dashTime <= 0 && gs.dashCooldown <= 0) {
+        gs.dashCharges--;
+        gs.dashTime = 17;
+        gs.dashCooldown = 34;
+        p.vx = p.facing * PLAYER_SPEED * 2.9;
+        Sfx.playMagic();
+      }
+      if (gs.dashTime > 0) {
+        gs.dashTime -= dt;
+        p.vx = p.facing * PLAYER_SPEED * 2.9;
+        p.vy = Math.min(p.vy, 1.2);      // hold her up a little so it reads as a lunge
+        gs.dashTrail.push({ x: p.x, y: p.y, life: 1 });
+      }
+      gs.dashTrail = gs.dashTrail
+        .map(t => ({ ...t, life: t.life - dt * 0.055 }))
+        .filter(t => t.life > 0);
 
       // Buffer a jump pressed slightly too early, and keep coyote time ticking
       // down after she leaves the ground.
@@ -2141,25 +2277,81 @@ export default function EggBeach() {
       // Fallen down a hole.
       if (p.y > CANVAS_H + 120) loseLife();
       if (p.y < 40) { p.y = 40; p.vy = 0; }
-      if (p.x < gs.cameraX - 50) { p.x = gs.cameraX - 50; p.vx = 0; }
+      // Keep her inside the level, not inside the camera. Clamping to the camera
+      // meant that any time the view drifted ahead it shoved the player forward,
+      // which fed back into the camera and walked her across the level on her own
+      // with no input at all.
+      if (p.x < 24) { p.x = 24; if (p.vx < 0) p.vx = 0; }
       if (p.x > gs.terrain.length - 40) { p.x = gs.terrain.length - 40; p.vx = 0; }
 
       p.frameTime += dt; if (p.frameTime > 4) { p.frameTime = 0; p.frame++; }
 
-      // Dawn AI
+      // --- Dawn, the rival --------------------------------------------------
+      // She reads the distance to Lola and picks a mood, rather than running a
+      // fixed speed on a timer. The point is that the chase has a shape: she gets
+      // away, she gloats about it, you close in, she panics and bolts, and the
+      // bolt costs her — which is the window you actually catch her in.
       dawn.reverseCooldown = Math.max(0, dawn.reverseCooldown - dt);
-      const distAhead = (dawn.x - p.x) * dawn.dir;
-      if (distAhead < 80 && dawn.reverseCooldown <= 0) {
-        dawn.dir = p.x < dawn.x ? 1 : -1; dawn.reverseCooldown = 55;
-        Sfx.playCluck();
+      dawn.moodTimer = Math.max(0, dawn.moodTimer - dt);
+      const gapToLola = Math.abs(dawn.x - p.x);
+      const baseSpeed = DAWN_SPEED[gs.level - 1];
+
+      if (dawn.mood === "stumble") {
+        if (dawn.moodTimer <= 0) { dawn.mood = "run"; dawn.stamina = Math.min(1, dawn.stamina + 0.25); }
+      } else if (dawn.mood === "taunt") {
+        dawn.tauntFlap += dt;
+        // Caught mid-gloat if you close the gap — she bolts, but you gained ground.
+        if (gapToLola < 150 || dawn.moodTimer <= 0) {
+          dawn.mood = gapToLola < 150 ? "bolt" : "run";
+          dawn.moodTimer = 70;
+          if (gapToLola < 150) Sfx.playCluck();
+        }
+      } else if (dawn.mood === "bolt") {
+        dawn.stamina = Math.max(0, dawn.stamina - dt * 0.010);
+        if (dawn.stamina <= 0.05 || dawn.moodTimer <= 0) { dawn.mood = "tired"; dawn.moodTimer = 90; }
+      } else if (dawn.mood === "tired") {
+        dawn.stamina = Math.min(1, dawn.stamina + dt * 0.006);
+        if (dawn.moodTimer <= 0) dawn.mood = "run";
+      } else {
+        // Running. Close in and she panics; get too far behind and she stops to
+        // wait for you, which keeps a struggling player in the chase.
+        if (gapToLola < 190 && dawn.stamina > 0.25) { dawn.mood = "bolt"; dawn.moodTimer = 110; Sfx.playCluck(); }
+        else if (gapToLola > 430 && dawn.moodTimer <= 0) { dawn.mood = "taunt"; dawn.moodTimer = 100; dawn.tauntFlap = 0; }
       }
-      if (Math.random() < DAWN_REVERSE_PROB[gs.level - 1] * dt && dawn.reverseCooldown <= 0) {
-        dawn.dir *= -1; dawn.reverseCooldown = 110;
+
+      // Trip on a ledge she has to climb — the terrain doing her a disservice.
+      if (dawn.onGround && dawn.mood !== "stumble") {
+        const ahead = groundAt(gs.terrain, dawn.x + dawn.dir * 34);
+        const here = groundAt(gs.terrain, dawn.x);
+        if (ahead !== null && here !== null && here - ahead > 34 && Math.random() < 0.05 * dt) {
+          dawn.mood = "stumble"; dawn.moodTimer = 46; Sfx.playCluck();
+        }
       }
-      if (Math.random() < DAWN_JUMP_PROB[gs.level - 1] * dt && dawn.onGround) {
+
+      // Turn away from Lola, and away from holes she would otherwise run into.
+      if (dawn.mood !== "stumble") {
+        const distAhead = (dawn.x - p.x) * dawn.dir;
+        if (distAhead < 80 && dawn.reverseCooldown <= 0) {
+          dawn.dir = p.x < dawn.x ? 1 : -1; dawn.reverseCooldown = 55;
+          Sfx.playCluck();
+        }
+        if (dawn.onGround && groundAt(gs.terrain, dawn.x + dawn.dir * 60) === null) {
+          // Jump the hole, or think better of it and turn round.
+          if (Math.random() < 0.5) { dawn.vy = jumpForce * 0.95; dawn.onGround = false; }
+          else if (dawn.reverseCooldown <= 0) { dawn.dir *= -1; dawn.reverseCooldown = 40; }
+        }
+      }
+      if (Math.random() < DAWN_JUMP_PROB[gs.level - 1] * dt && dawn.onGround && dawn.mood !== "stumble") {
         dawn.vy = jumpForce * 0.8; dawn.onGround = false;
       }
-      dawn.vx = DAWN_SPEED[gs.level - 1] * dawn.dir;
+
+      const moodSpeed =
+        dawn.mood === "stumble" ? 0 :
+        dawn.mood === "taunt" ? 0 :
+        dawn.mood === "bolt" ? baseSpeed * 1.55 :
+        dawn.mood === "tired" ? baseSpeed * 0.45 :
+        baseSpeed;
+      dawn.vx = moodSpeed * dawn.dir;
       dawn.vy += gravity * dt;
       dawn.x += dawn.vx * dt; dawn.y += dawn.vy * dt;
       const dSurf = surfaceUnder(gs.terrain, dawn.x, dawn.y + 35, dawn.vy);
@@ -2177,6 +2369,12 @@ export default function EggBeach() {
       const targetCam = p.x - CANVAS_W * 0.35;
       gs.cameraX += (targetCam - gs.cameraX) * 0.12 * dt;
       gs.cameraX = Math.max(0, Math.min(gs.cameraX, gs.terrain.length - CANVAS_W));
+
+      // Follow upward once she climbs above the middle of the screen, and never
+      // scroll below the base ground so the horizon stays put while running.
+      const camTargetY = Math.min(0, p.y - CANVAS_H * 0.56);
+      gs.cameraY += (camTargetY - gs.cameraY) * 0.09 * dt;
+      gs.cameraY = Math.max(-460, Math.min(0, gs.cameraY));
       gs.bgScrollX = gs.cameraX;
 
       // Egg collection
@@ -2188,14 +2386,52 @@ export default function EggBeach() {
           egg.collected = true;
           gs.eggsCollected++;
           playSoundEggCollect();
-          const remaining = 10 - gs.eggsCollected;
-          gs.eggBanner = { message: remaining > 0 ? `🥚 ${remaining} egg${remaining !== 1 ? "s" : ""} remaining!` : "🥚 All eggs collected!", alpha: 1.5 };
+          // Every third egg is a dash. This is what joins collecting to catching:
+          // the eggs were previously a counter with a threshold and nothing else.
+          if (gs.eggsCollected % 3 === 0) {
+            gs.dashCharges++;
+            gs.eggBanner = { message: "⚡ Dash ready! (SHIFT)", alpha: 1.8 };
+            Sfx.playDoubleJump();
+          } else {
+            const remaining = 10 - gs.eggsCollected;
+            gs.eggBanner = { message: remaining > 0 ? `🥚 ${remaining} egg${remaining !== 1 ? "s" : ""} remaining!` : "🥚 All eggs collected!", alpha: 1.5 };
+          }
         }
       }
 
       // Catch Dawn
       if (Math.abs(p.x - dawn.x) < 40 && Math.abs(p.y - dawn.y) < 60 && gs.eggsCollected >= 5) {
         nextLevel();
+      }
+
+      // --- Level verbs -------------------------------------------------------
+      // Each level gets one idea of its own. Before this they differed only in
+      // which sprite hurt you.
+      if (gs.level === 1) {
+        // The tide breathes in and out across her painted sea. Standing in it is
+        // slow going, so the raised ledges stop being optional.
+        gs.tide = BASE_GROUND + 22 + Math.sin(worldTime * 0.28) * 62;
+        const feet = p.y + 40;
+        if (feet > gs.tide + 6) {
+          p.vx *= Math.pow(0.90, dt);
+          if (p.vy < 0) p.vy *= Math.pow(0.94, dt);
+        }
+      } else if (gs.level === 2) {
+        // Real swimming: hold up or down to move vertically, and a slow current
+        // pushes you along. No jumping — this is the level's whole character.
+        gs.currentPhase += dt * 0.01;
+        const swimUp = keys["w"] || keys["ArrowUp"] || touch.jump;
+        const swimDown = keys["s"] || keys["ArrowDown"] || touch.crouch;
+        if (swimUp) p.vy -= 0.34 * dt;
+        if (swimDown) p.vy += 0.26 * dt;
+        p.vy *= Math.pow(0.93, dt);
+        p.vx += Math.sin(gs.currentPhase + p.x * 0.0012) * 0.05 * dt;
+        if (p.y < 30) { p.y = 30; p.vy = Math.max(0, p.vy); }
+      } else if (gs.level === 4) {
+        // Rising lava. The level is a staircase of ledges, so the pressure is to
+        // keep climbing rather than to keep running.
+        gs.lavaFloor -= dt * 0.085;
+        if (p.y + 40 > gs.lavaFloor) loseLife();
       }
 
       // L1 obstacles
@@ -2272,7 +2508,7 @@ export default function EggBeach() {
           }
           // Keep in world
           if (acorn.x < 50) { acorn.x = 50; acorn.vx = Math.abs(acorn.vx); }
-          if (acorn.x > LEVEL_LENGTH - 50) { acorn.x = LEVEL_LENGTH - 50; acorn.vx = -Math.abs(acorn.vx); }
+          if (acorn.x > gs.terrain.length - 50) { acorn.x = gs.terrain.length - 50; acorn.vx = -Math.abs(acorn.vx); }
           // Collision
           const ax2 = acorn.x - gs.cameraX;
           if (ax2 > -20 && ax2 < CANVAS_W + 20) {
@@ -2344,10 +2580,17 @@ export default function EggBeach() {
       }
 
       drawBackground(ctx, gs.level, gs.bgScrollX, worldTime, gs.clouds, gs.cameraX);
+
+      // Everything from here on is world space. Vertical scroll is one transform
+      // rather than a `- cameraY` on every draw call, which is how the forest and
+      // volcano can be climbed without touching each entity's renderer.
+      ctx.save();
+      ctx.translate(0, -gs.cameraY);
+
       drawTerrain(ctx, gs);
       gs.checkpoints.forEach(cp => {
         const cx = cp.x - gs.cameraX;
-        if (cx > -40 && cx < CANVAS_W + 40) drawCheckpoint(ctx, cx, cp.y - gs.cameraY, cp.reached, worldTime);
+        if (cx > -40 && cx < CANVAS_W + 40) drawCheckpoint(ctx, cx, cp.y, cp.reached, worldTime);
       });
 
       // L3 overlays (branches, roots) — drawn before characters
@@ -2390,11 +2633,21 @@ export default function EggBeach() {
 
       // Lola
       const psx = gs.player.x - gs.cameraX;
+      gs.dashTrail.forEach(t => {
+        ctx.save();
+        ctx.globalAlpha = t.life * 0.45;
+        ctx.fillStyle = "#ffe9a0";
+        ctx.beginPath();
+        ctx.ellipse(t.x - gs.cameraX, t.y + 14, 15 * t.life, 22 * t.life, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+
       drawLola(ctx, psx, gs.player.y, gs.player.facing, gs.player.crouching, gs.player.frame, gs.hurtFlash, gs.player.vx, !gs.player.onGround, gs.player.squash);
 
       // Dawn
       const dsx = gs.dawn.x - gs.cameraX;
-      if (dsx > -45 && dsx < CANVAS_W + 45) drawDawn(ctx, dsx, gs.dawn.y, gs.dawn.dir, gs.dawn.frame);
+      if (dsx > -45 && dsx < CANVAS_W + 45) drawDawn(ctx, dsx, gs.dawn.y, gs.dawn.dir, gs.dawn.frame, gs.dawn.mood, worldTime);
 
       // Arrow
       drawArrowIndicator(ctx, gs.dawn.x, gs.cameraX);
@@ -2411,10 +2664,15 @@ export default function EggBeach() {
         }
       });
 
+      drawLevelHazardSurface(ctx, gs, worldTime);
+
+      ctx.restore();   // end world space
+
       if (shaking) ctx.restore();
 
       // HUD
-      drawHUD(ctx, gs.lives, gs.eggsCollected, gs.level);
+      drawHUD(ctx, gs.lives, gs.eggsCollected, gs.level, gs.dashCharges);
+
 
       // Egg collection banner
       if (gs.eggBanner) drawEggBanner(ctx, gs.eggBanner);
@@ -2508,6 +2766,26 @@ export default function EggBeach() {
     gsRef.current = makeInitialState();
     applyDebugState(gsRef.current);
     lastTimeRef.current = performance.now();
+
+    // ?warp=N simulates N frames before the first real one.
+    //
+    // Needed because headless Chrome's --virtual-time-budget fast-forwards timers
+    // but fires requestAnimationFrame only a couple of times, so a screenshot
+    // otherwise always captures frame 2 or 3 — the level as it looks before
+    // anything has happened. Driving the loop by hand is the only way to
+    // screenshot a level mid-play, which is what authoring terrain needs.
+    const warp = Number(new URLSearchParams(window.location.search).get("warp") ?? 0);
+    if (warp > 0) {
+      let t = performance.now();
+      for (let i = 0; i < Math.min(warp, 20000); i++) {
+        t += 16.667;
+        gameLoop(t);
+        cancelAnimationFrame(rafRef.current);
+      }
+      // Hand back a real clock, or the first true frame sees a negative delta.
+      lastTimeRef.current = performance.now();
+    }
+
     rafRef.current = requestAnimationFrame(gameLoop);
     return () => cancelAnimationFrame(rafRef.current);
   }, [gameLoop]);
