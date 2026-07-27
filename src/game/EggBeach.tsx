@@ -3,6 +3,8 @@ import lolaSpriteSrc from "../assets/lola_sprite.png";
 import dawnSpriteSrc from "../assets/dawn_sprite.png";
 import eggSpriteSrc from "../assets/egg_sprite.png";
 import jellyfishSpriteSrc from "../assets/jellyfish_sprite.png";
+import crabSpriteSrc from "../assets/crab_sprite.png";
+import crabGreenSpriteSrc from "../assets/crab_green_sprite.png";
 import titleArtSrc from "../assets/title_art.png";
 import winScreenSrc from "../assets/win_screen.png";
 import bgBeachSrc from "../assets/bg_beach.png";
@@ -14,6 +16,8 @@ let _lolaSprite: HTMLImageElement | null = null;
 let _dawnSprite: HTMLImageElement | null = null;
 let _eggSprite: HTMLImageElement | null = null;
 let _jellyfishSprite: HTMLImageElement | null = null;
+let _crabSprite: HTMLImageElement | null = null;
+let _crabGreenSprite: HTMLImageElement | null = null;
 let _titleArt: HTMLImageElement | null = null;
 let _winScreen: HTMLImageElement | null = null;
 let _bgBeach: HTMLImageElement | null = null;
@@ -36,9 +40,15 @@ interface Egg {
   bobOffset: number;
 }
 
-interface Crab { x: number; y: number; dir: number; speed: number; }
+interface Crab {
+  x: number; y: number; dir: number; speed: number;
+  kind: number;          // 0 = her red crab, 1 = her green one
+  phase: number;         // desynchronises the scuttling animation
+  alert: number;         // 0..1, rises when the player is near
+  pauseTimer: number;    // counts down a stop-and-look-around
+  homeX: number;         // patrols around where he started
+}
 interface Jellyfish { x: number; startY: number; phase: number; speed: number; }
-interface Wave { x: number; phase: number; amplitude: number; }
 interface Branch { x: number; y: number; w: number; }
 interface Root { x: number; }
 interface Cloud { x: number; y: number; w: number; }
@@ -56,6 +66,10 @@ interface GameStateData {
     x: number; y: number; vx: number; vy: number;
     onGround: boolean; jumpsLeft: number; crouching: boolean;
     facing: number; frameTime: number; frame: number;
+    coyote: number;     // frames of grace left after walking off an edge
+    jumpBuffer: number; // frames a just-pressed jump stays queued
+    squash: number;     // landing squash, decays back to 0
+    jumpHeld: boolean;
   };
   dawn: {
     x: number; y: number; vx: number; vy: number;
@@ -66,7 +80,6 @@ interface GameStateData {
   eggs: Egg[];
   crabs: Crab[];
   jellyfish: Jellyfish[];
-  waves: Wave[];
   branches: Branch[];
   roots: Root[];
   clouds: Cloud[];
@@ -76,6 +89,7 @@ interface GameStateData {
   lavaSpawnTimer: number;
   // FX
   hurtFlash: number;
+  shake: number;
   hurtHearts: FloatingHeart[];
   eggBanner: { message: string; alpha: number } | null;
   // Meta
@@ -109,6 +123,40 @@ const LEVEL_LENGTH = 5000;
 const EGG_COLORS: EggColor[] = ["red", "blue", "green", "yellow", "purple"];
 const MAX_LEVELS = 4;
 
+// --- Movement feel -----------------------------------------------------
+// Instant velocity changes read as robotic, so the player accelerates into a
+// run and skids to a stop instead of snapping between speeds.
+const ACCEL = 0.9;
+const AIR_ACCEL = 0.45;
+const GROUND_FRICTION = 0.80;
+const AIR_FRICTION = 0.94;
+// Forgiveness windows, in frames. Coyote time keeps a jump alive briefly after
+// walking off a ledge; the buffer remembers a jump pressed just before landing.
+// Both make the controls feel responsive rather than strict, which matters a lot
+// for a young player.
+const COYOTE_FRAMES = 7;
+const JUMP_BUFFER_FRAMES = 8;
+// Releasing jump early cuts the rise short, so a tap is a hop and a hold is a leap.
+const JUMP_CUTOFF = 0.45;
+
+// Where the ground sits in each background drawing, as a fraction of the image
+// height — the sea/sand line on the beach, the floor of the forest, and so on.
+// The art is positioned so this lands exactly on GROUND_Y, which is what makes
+// her horizon line up with the surface the player walks on.
+const BG_GROUND_FRAC = [0.62, 0.78, 0.61, 0.75];
+const BG_PARALLAX = [0.18, 0.15, 0.20, 0.09];
+// How far to zoom into each drawing. The beach, ocean and forest are horizontal
+// bands, so they repeat happily at their natural size. The volcano is a single
+// object, and at that size it repeated three times across the screen and read as
+// wallpaper — zoomed in it fills the view as one landmark, at the cost of some sky.
+const BG_ZOOM = [1.0, 1.0, 1.0, 1.0];
+// Horizontal spacing between repeats, as a multiple of the art's width. The band
+// drawings repeat edge to edge and read as continuous scenery. Her volcano is one
+// tall object on a portrait page, so fitting it on screen leaves it narrower than
+// the canvas — repeated edge to edge it became wallpaper. Spacing the copies out
+// over a matching terrain base turns it back into a landmark you travel past.
+const BG_TILE_GAP = [1.0, 1.0, 1.0, 2.2];
+
 const STORY_TEXTS = [
   "Lola loves eggs. Dawn the chicken\nhas the best eggs on the beach.\nBut Dawn won't share — she runs!\nChase her down and collect eggs\nbefore she escapes!",
   "Dawn fled into the sea! Lola dives in\nafter her, dodging jellyfish through\nthe waves...",
@@ -133,22 +181,32 @@ function drawLola(
   ctx: CanvasRenderingContext2D,
   x: number, y: number,
   facing: number, crouching: boolean,
-  frame: number, hurtFlash: number
+  frame: number, hurtFlash: number,
+  speed = 0, airborne = false, squash = 0
 ) {
   ctx.save();
   ctx.translate(x, y + 34);
   ctx.scale(facing * 1.125, 1.125);
   ctx.translate(0, -34);
 
-  const scaleY = crouching ? 0.7 : 1;
-  ctx.scale(1, scaleY);
+  // Squash on landing, stretch on take-off. Conserving volume (widening as she
+  // flattens) is what stops it looking like a glitch and starts it looking like
+  // weight.
+  const scaleY = (crouching ? 0.7 : 1) * (1 - squash);
+  ctx.scale(1 + squash * 0.45, scaleY);
   const oy = crouching ? 10 : 0;
 
   if (_lolaSprite) {
     const sw = 52, sh = 90;
     const bodyY = 34 - sh + oy * 0.5;
-    const legBob = Math.sin(frame * 0.8) * 4;
 
+    // How hard she is working, 0..1 — drives the whole gait so that standing
+    // still, running and jumping all read differently.
+    const effort = airborne ? 1 : Math.min(1, Math.abs(speed) / PLAYER_SPEED);
+    const cycle = frame * 0.8;
+    const legBob = Math.sin(cycle) * (2 + effort * 3.5);
+
+    // Legs, behind the drawing.
     ctx.fillStyle = "#5533bb";
     ctx.fillRect(-6, oy + 24, 5, 8 + legBob);
     ctx.fillRect(1, oy + 24, 5, 8 - legBob);
@@ -156,7 +214,30 @@ function drawLola(
     ctx.fillRect(-8, oy + 30 + legBob * 0.4, 7, 4);
     ctx.fillRect(1, oy + 30 - legBob * 0.4, 7, 4);
 
+    // Far arm goes behind her, near arm in front, so she has depth instead of
+    // looking like a flat cut-out sliding around. Her drawing has both arms held
+    // against her body, so these are drawn either side of it and swing opposite
+    // to the legs, the way arms actually counterbalance a stride.
+    const armSwing = Math.sin(cycle + Math.PI) * (0.25 + effort * 0.75);
+    const drawArm = (side: number, swing: number, shade: string) => {
+      ctx.save();
+      ctx.translate(side * 11, oy - 6);
+      // In the air both arms fly up; on the ground they pump.
+      ctx.rotate(airborne ? side * -0.9 - 0.3 : swing * side);
+      ctx.fillStyle = shade;
+      ctx.beginPath();
+      ctx.roundRect(-2.5, 0, 5.5, 17, 2.6);
+      ctx.fill();
+      ctx.fillStyle = "#f0b183";
+      ctx.beginPath();
+      ctx.arc(0.3, 17, 3.1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    };
+
+    drawArm(-1, armSwing, "#c98a5f");   // far arm, shaded
     ctx.drawImage(_lolaSprite, -sw / 2, bodyY, sw, sh);
+    drawArm(1, -armSwing, "#eda878");   // near arm, lit
 
     if (hurtFlash > 0) {
       ctx.save();
@@ -248,15 +329,33 @@ function drawDawn(ctx: CanvasRenderingContext2D, x: number, y: number, dir: numb
   ctx.restore();
 }
 
-function drawEgg(ctx: CanvasRenderingContext2D, egg: Egg) {
+function drawEgg(ctx: CanvasRenderingContext2D, egg: Egg, worldTime: number) {
   if (egg.collected) return;
   const by = egg.y + Math.sin(egg.bobOffset) * 4;
-  const glow = Math.sin(egg.bobOffset * 1.5) * 0.15 + 0.25;
+  const twinkle = 0.5 + Math.sin(egg.bobOffset * 1.6) * 0.5;
+
+  // Contact shadow, so the egg reads as sitting on the sand.
+  ctx.fillStyle = "rgba(0,0,0,0.20)";
+  ctx.beginPath();
+  ctx.ellipse(egg.x, egg.y + 15, 11 - Math.sin(egg.bobOffset) * 1.4, 3.4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Warm halo. Her egg is drawn in pale marker on white paper, so against bright
+  // sand it had almost no edge contrast — this is what makes it findable.
+  const halo = ctx.createRadialGradient(egg.x, by, 3, egg.x, by, 24);
+  halo.addColorStop(0, `rgba(255,225,120,${0.40 + twinkle * 0.22})`);
+  halo.addColorStop(1, "rgba(255,215,90,0)");
+  ctx.fillStyle = halo;
+  ctx.beginPath(); ctx.arc(egg.x, by, 24, 0, Math.PI * 2); ctx.fill();
 
   if (_eggSprite) {
-    const ew = 32, eh = 38;
-    ctx.globalAlpha = 1;
+    const ew = 26, eh = ew * (_eggSprite.height / _eggSprite.width);
+    ctx.save();
+    // A soft dark rim lifts her pale outline off any background.
+    ctx.shadowColor = "rgba(90,50,0,0.55)";
+    ctx.shadowBlur = 5;
     ctx.drawImage(_eggSprite, egg.x - ew / 2, by - eh / 2, ew, eh);
+    ctx.restore();
   } else {
     const colors: Record<EggColor, [string, string]> = {
       red: ["#ee2222", "#ff8888"], blue: ["#2244ee", "#6699ff"],
@@ -268,42 +367,98 @@ function drawEgg(ctx: CanvasRenderingContext2D, egg: Egg) {
     drawEggShape(ctx, egg.x, by, 9, 12);
     ctx.fillStyle = shine;
     ctx.beginPath(); ctx.ellipse(egg.x - 3, by - 5, 4, 5, -0.5, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = "rgba(255,255,255,0.7)";
-    ctx.beginPath(); ctx.arc(egg.x - 4, by - 6, 2, 0, Math.PI * 2); ctx.fill();
   }
+
+  // Sparkle orbiting the egg, to catch the eye while scrolling past.
+  const sa = worldTime * 2.2 + egg.bobOffset;
+  const sx = egg.x + Math.cos(sa) * 13;
+  const sy = by + Math.sin(sa) * 9;
+  const s = 1.4 + twinkle * 1.5;
+  ctx.fillStyle = `rgba(255,255,235,${0.55 + twinkle * 0.4})`;
+  ctx.beginPath();
+  ctx.moveTo(sx, sy - s); ctx.lineTo(sx + s * 0.5, sy); ctx.lineTo(sx, sy + s); ctx.lineTo(sx - s * 0.5, sy);
+  ctx.closePath(); ctx.fill();
 }
 
-function drawCrab(ctx: CanvasRenderingContext2D, crab: Crab) {
+function drawCrab(ctx: CanvasRenderingContext2D, crab: Crab, worldTime: number) {
+  const sprite = crab.kind === 1 ? _crabGreenSprite : _crabSprite;
+  // Scuttling gait: a quick bob with a slight tilt, so he looks like he is
+  // working at it rather than sliding along the sand.
+  const gait = worldTime * 9 + crab.phase;
+  const scuttling = Math.abs(crab.speed) > 0.05;
+  const bob = scuttling ? Math.abs(Math.sin(gait)) * 2.5 : Math.sin(worldTime * 2 + crab.phase) * 0.8;
+  const tilt = scuttling ? Math.sin(gait) * 0.09 : 0;
+
   ctx.save();
-  ctx.translate(crab.x, crab.y);
+  ctx.translate(crab.x, crab.y - bob);
+
+  ctx.fillStyle = "rgba(0,0,0,0.22)";
+  ctx.beginPath();
+  ctx.ellipse(0, 6 + bob, 19 - bob * 1.6, 4.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
   ctx.scale(crab.dir, 1);
-  // Shadow
-  ctx.fillStyle = "rgba(0,0,0,0.18)";
-  ctx.beginPath(); ctx.ellipse(0, 4, 20, 5, 0, 0, Math.PI * 2); ctx.fill();
-  // Body
-  ctx.fillStyle = "#dd3300";
-  ctx.beginPath(); ctx.ellipse(0, 0, 15, 10, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = "#ff5522";
-  ctx.beginPath(); ctx.ellipse(-2, -3, 8, 5, 0, 0, Math.PI * 2); ctx.fill();
-  // Eyes
-  ctx.fillStyle = "#111";
-  ctx.beginPath(); ctx.arc(-5, -7, 2.5, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(5, -7, 2.5, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = "#fff";
-  ctx.beginPath(); ctx.arc(-4.5, -7.5, 1, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(5.5, -7.5, 1, 0, Math.PI * 2); ctx.fill();
-  // Claws
-  ctx.fillStyle = "#cc2200";
-  ctx.fillRect(-26, -9, 13, 7);
-  ctx.fillRect(14, -9, 13, 7);
-  ctx.beginPath(); ctx.ellipse(-24, -5, 7, 6, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.ellipse(24, -5, 7, 6, 0, 0, Math.PI * 2); ctx.fill();
-  // Legs
+  ctx.rotate(tilt);
+
+  // Legs are drawn behind her artwork and animated in two alternating sets, the
+  // way a real crab moves — the drawing itself has no legs to animate.
+  ctx.strokeStyle = crab.kind === 1 ? "#2f6b28" : "#8d1c08";
+  ctx.lineWidth = 2.4;
+  ctx.lineCap = "round";
   for (let i = -1; i <= 1; i++) {
-    ctx.fillStyle = "#ee4411";
-    ctx.fillRect(-18 + i * 4, 5, 3, 11);
-    ctx.fillRect(10 + i * 4, 5, 3, 11);
+    for (const side of [-1, 1]) {
+      const swing = Math.sin(gait + (i + (side > 0 ? 1.5 : 0)) * 1.1) * (scuttling ? 3.4 : 0.8);
+      const hipX = side * (7 + Math.abs(i) * 3);
+      const hipY = 2 + i * 1.5;
+      ctx.beginPath();
+      ctx.moveTo(hipX, hipY);
+      ctx.lineTo(hipX + side * 6, hipY + 5 - swing * 0.4);
+      ctx.lineTo(hipX + side * 8 + swing, hipY + 11);
+      ctx.stroke();
+    }
   }
+
+  // Claws raise when the player is close — the tell that he is about to be a problem.
+  const alert = crab.alert;
+  const clawLift = alert * 5;
+  const clawSnap = alert > 0.15 ? Math.abs(Math.sin(worldTime * 14)) * 0.5 : 0;
+  ctx.strokeStyle = crab.kind === 1 ? "#39802f" : "#a52208";
+  ctx.lineWidth = 3;
+  for (const side of [-1, 1]) {
+    ctx.save();
+    ctx.translate(side * 13, -3 - clawLift);
+    ctx.rotate(side * (0.5 + clawSnap) * -1);
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(side * 7, -4); ctx.stroke();
+    ctx.fillStyle = crab.kind === 1 ? "#3f8f33" : "#c22a0a";
+    ctx.beginPath(); ctx.ellipse(side * 9, -5, 4.5, 3.4, side * 0.4, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  if (sprite) {
+    const cw = 40, ch = cw * (sprite.height / sprite.width);
+    ctx.drawImage(sprite, -cw / 2, -ch * 0.62, cw, ch);
+  } else {
+    ctx.fillStyle = crab.kind === 1 ? "#3f8f33" : "#cc2f10";
+    ctx.beginPath(); ctx.ellipse(0, -2, 15, 10, 0, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Googly eyes on stalks, drawn on top so they read at any size. Her crab is a
+  // loose marker blob, and these are what turn it into a character.
+  const look = alert > 0.15 ? 1.6 : 0;
+  for (const side of [-1, 1]) {
+    const ex = side * 5.5;
+    const ey = -13 - Math.sin(gait * 0.5 + side) * 0.6;
+    ctx.strokeStyle = "rgba(0,0,0,0.75)";
+    ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(ex * 0.6, -7); ctx.lineTo(ex, ey + 2); ctx.stroke();
+    ctx.fillStyle = "#fff";
+    ctx.beginPath(); ctx.arc(ex, ey, 3.4, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,0.55)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(ex, ey, 3.4, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = "#111";
+    ctx.beginPath(); ctx.arc(ex + look, ey + (alert > 0.15 ? 0.4 : 0), 1.7, 0, Math.PI * 2); ctx.fill();
+  }
+
   ctx.restore();
 }
 
@@ -313,19 +468,30 @@ function drawJellyfish(ctx: CanvasRenderingContext2D, jf: Jellyfish, worldTime: 
   ctx.translate(jf.x, y);
 
   if (_jellyfishSprite) {
-    const jw = 50, jh = 62;
-    const pulse = 1 + Math.sin(worldTime * 2 + jf.phase) * 0.08;
-    const sway = Math.sin(worldTime * 1.2 + jf.phase) * 0.1;
+    // Squash and stretch on the bell, in time with the drift — the up-beat is a
+    // quick squeeze and the fall is a slow relax, which is how a jellyfish swims.
+    const t = worldTime * 2 + jf.phase;
+    const squeeze = Math.pow(Math.max(0, Math.sin(t)), 2);
+    const pulse = 1 + squeeze * 0.16;
+    const sway = Math.sin(worldTime * 1.2 + jf.phase) * 0.12;
+
+    const jw = 46, jh = jw * (_jellyfishSprite.height / _jellyfishSprite.width);
+
+    // Bioluminescent halo. Doubles as a readability aid in the dim water.
+    const glow = ctx.createRadialGradient(0, 0, 4, 0, 0, 34);
+    glow.addColorStop(0, `rgba(210,130,255,${0.30 + squeeze * 0.25})`);
+    glow.addColorStop(1, "rgba(180,90,240,0)");
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(0, 0, 34, 0, Math.PI * 2); ctx.fill();
+
     ctx.save();
     ctx.rotate(sway);
     ctx.scale(pulse, 1 / pulse);
-    ctx.drawImage(_jellyfishSprite, -jw / 2, -jh * 0.35, jw, jh);
+    ctx.drawImage(_jellyfishSprite, -jw / 2, -jh * 0.34, jw, jh);
     ctx.restore();
   } else {
     ctx.fillStyle = "rgba(220,80,240,0.65)";
     ctx.beginPath(); ctx.ellipse(0, 0, 22, 16, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = "rgba(255,160,255,0.45)";
-    ctx.beginPath(); ctx.ellipse(-5, -4, 12, 9, 0, 0, Math.PI * 2); ctx.fill();
     ctx.lineWidth = 2.5;
     for (let i = -3; i <= 3; i++) {
       const xOff = i * 5;
@@ -338,20 +504,6 @@ function drawJellyfish(ctx: CanvasRenderingContext2D, jf: Jellyfish, worldTime: 
   ctx.restore();
 }
 
-function drawWave(ctx: CanvasRenderingContext2D, wave: Wave, worldTime: number, cameraX: number) {
-  const screenX = wave.x - cameraX;
-  const y = GROUND_Y + 28 + Math.sin(worldTime * 2 + wave.phase) * wave.amplitude;
-  ctx.fillStyle = "rgba(0,80,200,0.72)";
-  ctx.beginPath();
-  ctx.moveTo(screenX, CANVAS_H);
-  ctx.bezierCurveTo(screenX + 22, y, screenX + 44, CANVAS_H - 18, screenX + 66, y - 12);
-  ctx.bezierCurveTo(screenX + 88, CANVAS_H - 12, screenX + 110, y, screenX + 132, CANVAS_H);
-  ctx.closePath(); ctx.fill();
-  // Foam
-  ctx.fillStyle = "rgba(200,230,255,0.4)";
-  ctx.beginPath(); ctx.ellipse(screenX + 40, y - 5, 30, 7, 0, 0, Math.PI * 2); ctx.fill();
-}
-
 function drawCloud(ctx: CanvasRenderingContext2D, cloud: Cloud) {
   ctx.fillStyle = "rgba(255,255,255,0.92)";
   ctx.beginPath(); ctx.ellipse(cloud.x, cloud.y, cloud.w * 0.5, cloud.w * 0.22, 0, 0, Math.PI * 2); ctx.fill();
@@ -359,34 +511,100 @@ function drawCloud(ctx: CanvasRenderingContext2D, cloud: Cloud) {
   ctx.beginPath(); ctx.ellipse(cloud.x + cloud.w * 0.26, cloud.y + 5, cloud.w * 0.36, cloud.w * 0.21, 0, 0, Math.PI * 2); ctx.fill();
 }
 
+/**
+ * Branch platforms.
+ *
+ * These sat almost invisible against the forest: her canopy is brown trunks over
+ * yellow ground, and the platform was plain brown on top of it. Silhouette is
+ * what fixes that, not colour — a hard dark outline, a bright mossy cap, and a
+ * cast shadow underneath so it reads as something in front of the trees that you
+ * can stand on.
+ */
 function drawBranch(ctx: CanvasRenderingContext2D, branch: Branch, cameraX: number) {
   const sx = branch.x - cameraX;
-  ctx.fillStyle = "#6b3a14";
-  ctx.fillRect(sx, branch.y, branch.w, 15);
-  ctx.fillStyle = "#8b5a2b";
-  ctx.fillRect(sx, branch.y, branch.w, 4);
-  ctx.fillStyle = "#33aa22";
+  const w = branch.w, y = branch.y;
+
+  // Shadow on the forest floor, which also hints where to land.
+  ctx.fillStyle = "rgba(0,0,0,0.16)";
   ctx.beginPath();
-  ctx.ellipse(sx + branch.w / 2, branch.y - 6, branch.w / 2 + 12, 14, 0, 0, Math.PI * 2);
+  ctx.ellipse(sx + w / 2, GROUND_Y - 2, w * 0.42, 5, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = "#44cc33";
+
+  ctx.save();
+  ctx.lineJoin = "round";
+
+  // Dark underside first, so the lit top edge pops off it.
+  ctx.fillStyle = "#3a1d08";
   ctx.beginPath();
-  ctx.ellipse(sx + branch.w / 2 - 8, branch.y - 8, branch.w / 4, 9, -0.3, 0, Math.PI * 2);
+  ctx.roundRect(sx - 3, y - 2, w + 6, 20, 6);
   ctx.fill();
+
+  ctx.fillStyle = "#7c4a1e";
+  ctx.beginPath();
+  ctx.roundRect(sx, y - 4, w, 16, 5);
+  ctx.fill();
+
+  // Mossy top surface: the bright band is the actual standing line.
+  const cap = ctx.createLinearGradient(0, y - 6, 0, y + 4);
+  cap.addColorStop(0, "#8ede54");
+  cap.addColorStop(1, "#3f9c22");
+  ctx.fillStyle = cap;
+  ctx.beginPath();
+  ctx.roundRect(sx - 1, y - 7, w + 2, 9, 4);
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(20,10,0,0.85)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(sx - 1, y - 7, w + 2, 19, 5);
+  ctx.stroke();
+
+  // A few tufts breaking the straight edge so it still feels hand-made.
+  ctx.fillStyle = "#6ec73a";
+  for (let i = 0; i < Math.max(3, Math.floor(w / 22)); i++) {
+    const gx = sx + 8 + i * (w - 12) / Math.max(1, Math.floor(w / 22));
+    ctx.beginPath();
+    ctx.ellipse(gx, y - 8, 5, 3.5, Math.sin(gx) * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
 }
 
+/** Trip roots. Outlined and highlighted for the same reason as the branches. */
 function drawRoot(ctx: CanvasRenderingContext2D, rx: number, cameraX: number) {
   const sx = rx - cameraX;
-  ctx.fillStyle = "#5a3214";
-  ctx.beginPath();
-  ctx.moveTo(sx, GROUND_Y);
-  ctx.bezierCurveTo(sx + 10, GROUND_Y - 22, sx + 22, GROUND_Y - 16, sx + 32, GROUND_Y);
+  ctx.save();
+  ctx.lineJoin = "round";
+
+  const hump = (inset: number) => {
+    ctx.beginPath();
+    ctx.moveTo(sx + inset, GROUND_Y + 2);
+    ctx.bezierCurveTo(
+      sx + 10 + inset * 0.5, GROUND_Y - 24 + inset,
+      sx + 22 - inset * 0.5, GROUND_Y - 18 + inset,
+      sx + 32 - inset, GROUND_Y + 2,
+    );
+  };
+
+  hump(0);
+  ctx.fillStyle = "#472208";
   ctx.fill();
-  ctx.fillStyle = "#7a4a28";
-  ctx.beginPath();
-  ctx.moveTo(sx + 4, GROUND_Y);
-  ctx.bezierCurveTo(sx + 12, GROUND_Y - 14, sx + 18, GROUND_Y - 10, sx + 28, GROUND_Y);
+  ctx.strokeStyle = "rgba(15,8,0,0.9)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  hump(5);
+  ctx.fillStyle = "#8a5426";
   ctx.fill();
+
+  // Lit crest, so the bump is legible against the yellow floor she drew.
+  ctx.strokeStyle = "rgba(220,180,110,0.75)";
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(sx + 6, GROUND_Y - 8);
+  ctx.bezierCurveTo(sx + 13, GROUND_Y - 20, sx + 20, GROUND_Y - 16, sx + 26, GROUND_Y - 7);
+  ctx.stroke();
+  ctx.restore();
 }
 
 function drawAcorn(ctx: CanvasRenderingContext2D, x: number, y: number) {
@@ -552,237 +770,183 @@ function drawVolcanoBackground(ctx: CanvasRenderingContext2D, bgScrollX: number,
 // =====================================================================
 // BACKGROUNDS
 // =====================================================================
+function artBackgroundLayout(img: HTMLImageElement, level: number) {
+  const groundFrac = BG_GROUND_FRAC[level - 1];
+  // Big enough that her art still covers the canvas once its ground line is
+  // pinned to GROUND_Y, both above and below that line.
+  const h = Math.max(GROUND_Y / groundFrac, (CANVAS_H - GROUND_Y) / (1 - groundFrac)) * 1.02 * BG_ZOOM[level - 1];
+  const w = h * (img.width / img.height);
+  return { w, h, top: GROUND_Y - groundFrac * h };
+}
+
+/**
+ * Draw one of her drawings as the actual scenery.
+ *
+ * The art is positioned so the horizon she painted lands exactly on the ground the
+ * player walks on — that alignment is most of what stops it reading as a photo
+ * pasted behind the game.
+ *
+ * It repeats plainly rather than mirrored. Mirroring sounds like the tidier way to
+ * hide a seam, but her clouds are distinct shapes, so a mirrored repeat turns the
+ * sky into an obvious symmetrical butterfly. A plain repeat just reads as more sky.
+ */
+function drawArtBackground(ctx: CanvasRenderingContext2D, img: HTMLImageElement, cameraX: number, level: number) {
+  const { w, h, top } = artBackgroundLayout(img, level);
+  const step = w * BG_TILE_GAP[level - 1];
+
+  if (step > w + 1) {
+    // Spaced landmarks: lay down the terrain the drawing sits on first, so the
+    // gaps between copies are ground and sky rather than empty canvas.
+    // Colours sampled from the edges of her volcano page, so the terrain either
+    // side of a landmark is the same haze and ash she painted.
+    const sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+    sky.addColorStop(0, "#98bdc4");
+    sky.addColorStop(0.45, "#a26d6f");
+    sky.addColorStop(1, "#c78c76");
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, CANVAS_W, GROUND_Y);
+    const ground = ctx.createLinearGradient(0, GROUND_Y - 6, 0, CANVAS_H);
+    ground.addColorStop(0, "#6f6662");
+    ground.addColorStop(1, "#2f2b2c");
+    ctx.fillStyle = ground;
+    ctx.fillRect(0, GROUND_Y - 6, CANVAS_W, CANVAS_H - GROUND_Y + 6);
+  }
+
+  let x = -((cameraX * BG_PARALLAX[level - 1]) % step);
+  if (x > 0) x -= step;
+
+  // Overlap each repeat by a hair. Her pages are cropped to the drawn area, so
+  // butting them together can leave a one-pixel light seam as the edges resample.
+  for (; x < CANVAS_W; x += step) {
+    ctx.drawImage(img, x, top, w + 1, h);
+  }
+}
+
+/** A soft contact shadow so characters sit on the ground rather than float above it. */
+function drawGroundContact(ctx: CanvasRenderingContext2D, tint: string) {
+  const g = ctx.createLinearGradient(0, GROUND_Y - 10, 0, GROUND_Y + 16);
+  g.addColorStop(0, "rgba(0,0,0,0)");
+  g.addColorStop(0.4, tint);
+  g.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, GROUND_Y - 10, CANVAS_W, 26);
+}
+
+/** Corner darkening — pushes the edges back and keeps the eye on the action. */
+function drawVignette(ctx: CanvasRenderingContext2D, strength: number) {
+  const g = ctx.createRadialGradient(CANVAS_W / 2, CANVAS_H / 2, CANVAS_H * 0.35, CANVAS_W / 2, CANVAS_H / 2, CANVAS_W * 0.72);
+  g.addColorStop(0, "rgba(0,0,0,0)");
+  g.addColorStop(1, `rgba(0,0,0,${strength})`);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+}
+
 function drawBackground(
   ctx: CanvasRenderingContext2D,
   level: number, bgScrollX: number, worldTime: number,
   clouds: Cloud[], cameraX: number
 ) {
+  const art = [_bgBeach, _bgOcean, _bgForest, _bgVolcano][level - 1];
+
+  if (!art) {
+    // Only until the drawing loads — a flat wash in roughly her palette.
+    const fallback = ["#9fd8f2", "#1f6fae", "#8fbf63", "#6b4a58"][level - 1];
+    ctx.fillStyle = fallback;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    return;
+  }
+
+  drawArtBackground(ctx, art, cameraX, level);
+
+  // Everything below is atmosphere drawn *over* her art. The previous version
+  // rendered a second, complete procedural scene at 30% opacity on top of the
+  // drawing, which is what made every level look muddy — two pictures competing.
+  // These are sparse accents that move, so the scene feels alive without hiding
+  // anything she drew.
   if (level === 1) {
-    if (_bgBeach) {
-      ctx.drawImage(_bgBeach, 0, 0, CANVAS_W, CANVAS_H);
-      const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-      skyGrad.addColorStop(0, "rgba(68,170,255,0.35)");
-      skyGrad.addColorStop(0.5, "rgba(136,221,255,0.3)");
-      skyGrad.addColorStop(1, "rgba(204,240,255,0.25)");
-      ctx.fillStyle = skyGrad;
-      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-    } else {
-      const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-      skyGrad.addColorStop(0, "#44aaff");
-      skyGrad.addColorStop(0.5, "#88ddff");
-      skyGrad.addColorStop(1, "#ccf0ff");
-      ctx.fillStyle = skyGrad;
-      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-    }
-
-    if (_bgBeach) ctx.globalAlpha = 0.3;
-
-    clouds.forEach(c => {
-      const px = ((c.x - bgScrollX * 0.3 + CANVAS_W * 3) % (CANVAS_W + 200)) - 100;
-      drawCloud(ctx, { x: px, y: c.y, w: c.w });
-    });
-
-    for (let i = 0; i < 3; i++) {
-      const hx = ((i * 320 + 60 - bgScrollX * 0.15) % (CANVAS_W + 400) + CANVAS_W + 400) % (CANVAS_W + 400) - 200;
-      ctx.fillStyle = `hsl(190, 50%, ${70 + i * 5}%)`;
+    // Surf sliding up the sand, right at the waterline.
+    for (let i = 0; i < 5; i++) {
+      const wx = ((i * 190 - cameraX * 0.45 + 40) % (CANVAS_W + 220) + CANVAS_W + 220) % (CANVAS_W + 220) - 110;
+      const swell = Math.sin(worldTime * 1.4 + i) * 0.5 + 0.5;
+      ctx.fillStyle = `rgba(255,255,255,${0.10 + swell * 0.16})`;
       ctx.beginPath();
-      ctx.moveTo(hx - 120, GROUND_Y - 30);
-      ctx.bezierCurveTo(hx - 60, GROUND_Y - 70, hx + 60, GROUND_Y - 70, hx + 120, GROUND_Y - 30);
+      ctx.ellipse(wx, GROUND_Y - 4 + swell * 3, 70 + swell * 22, 7, 0, 0, Math.PI * 2);
       ctx.fill();
     }
-
-    const oceanGrad = ctx.createLinearGradient(0, GROUND_Y - 20, 0, GROUND_Y + 50);
-    oceanGrad.addColorStop(0, "#1155cc");
-    oceanGrad.addColorStop(1, "#0033aa");
-    ctx.fillStyle = oceanGrad;
-    ctx.fillRect(0, GROUND_Y - 20, CANVAS_W, 70);
-    for (let i = 0; i < 6; i++) {
-      const wx = ((i * 170 - bgScrollX * 0.5 + 30) % (CANVAS_W + 200) + CANVAS_W + 200) % (CANVAS_W + 200) - 100;
-      ctx.fillStyle = `rgba(120,200,255,${0.35 + Math.sin(worldTime * 1.5 + i) * 0.12})`;
-      ctx.beginPath(); ctx.ellipse(wx, GROUND_Y - 8, 50, 8, 0, 0, Math.PI * 2); ctx.fill();
-    }
-
-    const sandGrad = ctx.createLinearGradient(0, GROUND_Y, 0, CANVAS_H);
-    sandGrad.addColorStop(0, "#f5d060");
-    sandGrad.addColorStop(0.3, "#e8c040");
-    sandGrad.addColorStop(1, "#c88a30");
-    ctx.fillStyle = sandGrad;
-    ctx.fillRect(0, GROUND_Y, CANVAS_W, CANVAS_H - GROUND_Y);
-    for (let i = 0; i < 10; i++) {
-      const bx = ((i * 90 - bgScrollX * 0.2 + 20) % (CANVAS_W + 100) + CANVAS_W + 100) % (CANVAS_W + 100) - 50;
-      ctx.fillStyle = "#f0d870";
-      ctx.beginPath(); ctx.ellipse(bx, GROUND_Y + 6, 28, 9, 0, 0, Math.PI * 2); ctx.fill();
-    }
-    for (let i = 0; i < 15; i++) {
-      const px2 = ((i * 60 + 10 - bgScrollX * 0.25) % (CANVAS_W + 80) + CANVAS_W + 80) % (CANVAS_W + 80) - 40;
-      ctx.fillStyle = `hsl(30, 50%, ${45 + (i % 4) * 5}%)`;
-      ctx.beginPath(); ctx.ellipse(px2, GROUND_Y + 14 + (i % 3) * 5, 4 + (i % 3), 3, 0, 0, Math.PI * 2); ctx.fill();
-    }
-
-    ctx.globalAlpha = 1;
+    clouds.forEach((c, i) => {
+      const px = ((c.x - cameraX * 0.08 + CANVAS_W * 3) % (CANVAS_W + 260)) - 130;
+      ctx.fillStyle = `rgba(255,255,255,${0.13 + (i % 3) * 0.03})`;
+      ctx.beginPath();
+      ctx.ellipse(px, c.y * 0.65 + 12, c.w * 0.5, c.w * 0.19, 0, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    drawGroundContact(ctx, "rgba(150,90,20,0.20)");
+    drawVignette(ctx, 0.16);
 
   } else if (level === 2) {
-    if (_bgOcean) {
-      ctx.drawImage(_bgOcean, 0, 0, CANVAS_W, CANVAS_H);
-      const seaGrad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
-      seaGrad.addColorStop(0, "rgba(0,68,136,0.35)");
-      seaGrad.addColorStop(0.4, "rgba(0,85,153,0.3)");
-      seaGrad.addColorStop(1, "rgba(0,34,68,0.35)");
-      ctx.fillStyle = seaGrad;
-      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-    } else {
-      const seaGrad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
-      seaGrad.addColorStop(0, "#004488");
-      seaGrad.addColorStop(0.4, "#005599");
-      seaGrad.addColorStop(1, "#002244");
-      ctx.fillStyle = seaGrad;
-      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-    }
-
-    if (_bgOcean) ctx.globalAlpha = 0.3;
-
+    // Underwater: cool depth tint, godrays, and bubbles rising.
+    ctx.fillStyle = "rgba(10,60,120,0.20)";
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
     for (let i = 0; i < 5; i++) {
-      const rAlpha = 0.06 + Math.sin(worldTime * 0.8 + i) * 0.02;
-      ctx.fillStyle = `rgba(100,200,255,${rAlpha})`;
-      const rx = i * 190 - 30 + Math.sin(worldTime * 0.4 + i) * 25;
+      const rx = ((i * 210 - cameraX * 0.12) % (CANVAS_W + 260) + CANVAS_W + 260) % (CANVAS_W + 260) - 130;
+      const drift = Math.sin(worldTime * 0.4 + i) * 22;
+      ctx.fillStyle = `rgba(190,235,255,${0.05 + Math.sin(worldTime * 0.7 + i) * 0.025})`;
       ctx.beginPath();
-      ctx.moveTo(rx, 0); ctx.lineTo(rx + 35, 0);
-      ctx.lineTo(rx + 70, CANVAS_H); ctx.lineTo(rx + 35, CANVAS_H);
+      ctx.moveTo(rx + drift, 0); ctx.lineTo(rx + 46 + drift, 0);
+      ctx.lineTo(rx + 96, CANVAS_H); ctx.lineTo(rx + 20, CANVAS_H);
       ctx.closePath(); ctx.fill();
     }
-
-    for (let i = 0; i < 10; i++) {
-      const bx = ((i * 100 - bgScrollX * 0.12 + 20) % (CANVAS_W + 60) + CANVAS_W + 60) % (CANVAS_W + 60) - 30;
-      const by = GROUND_Y - ((worldTime * 28 + i * 42) % GROUND_Y);
-      ctx.strokeStyle = `rgba(150,220,255,${0.3 + (i % 3) * 0.1})`;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(bx, by, 3 + (i % 4), 0, Math.PI * 2); ctx.stroke();
+    for (let i = 0; i < 16; i++) {
+      const bx = ((i * 97 - cameraX * 0.3 + 30) % (CANVAS_W + 80) + CANVAS_W + 80) % (CANVAS_W + 80) - 40;
+      const by = GROUND_Y - ((worldTime * 34 + i * 61) % (GROUND_Y + 40));
+      const r = 2 + (i % 4);
+      ctx.strokeStyle = `rgba(220,245,255,${0.30 + (i % 3) * 0.12})`;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.arc(bx + Math.sin(by * 0.05 + i) * 6, by, r, 0, Math.PI * 2); ctx.stroke();
     }
-
-    const floorGrad = ctx.createLinearGradient(0, GROUND_Y, 0, CANVAS_H);
-    floorGrad.addColorStop(0, "#c8a860");
-    floorGrad.addColorStop(1, "#a87840");
-    ctx.fillStyle = floorGrad;
-    ctx.fillRect(0, GROUND_Y, CANVAS_W, CANVAS_H - GROUND_Y);
-
-    for (let i = 0; i < 9; i++) {
-      const cx2 = ((i * 120 + 40 - cameraX * 0.75) % (CANVAS_W + 130) + CANVAS_W + 130) % (CANVAS_W + 130) - 65;
-      if (i % 3 === 0) {
-        // Fan coral
-        ctx.fillStyle = `hsl(${350 + (i * 15) % 40}, 85%, 55%)`;
-        ctx.beginPath(); ctx.arc(cx2, GROUND_Y - 6, 11, 0, Math.PI * 2); ctx.fill();
-        ctx.fillRect(cx2 - 3, GROUND_Y - 28, 7, 24);
-        ctx.beginPath(); ctx.arc(cx2 - 14, GROUND_Y - 24, 9, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.arc(cx2 + 14, GROUND_Y - 22, 10, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = `hsl(${10 + (i * 15) % 30}, 90%, 70%)`;
-        ctx.beginPath(); ctx.arc(cx2, GROUND_Y - 26, 6, 0, Math.PI * 2); ctx.fill();
-      } else if (i % 3 === 1) {
-        // Seaweed
-        ctx.lineWidth = 5;
-        for (let j = 0; j < 6; j++) {
-          const sy = GROUND_Y - j * 11;
-          const off = Math.sin(worldTime * 1.3 + j * 0.6 + i) * 9;
-          const hue = 110 + (i * 20) % 40;
-          ctx.strokeStyle = `hsl(${hue}, 70%, 38%)`;
-          if (j === 0) { ctx.beginPath(); ctx.moveTo(cx2, sy); }
-          else ctx.lineTo(cx2 + off, sy);
-        }
-        ctx.stroke();
-      } else {
-        // Sea star
-        ctx.fillStyle = `hsl(${25 + i * 10}, 90%, 58%)`;
-        for (let p = 0; p < 5; p++) {
-          const a = (p / 5) * Math.PI * 2;
-          ctx.beginPath(); ctx.ellipse(cx2 + Math.cos(a) * 10, GROUND_Y + 8 + Math.sin(a) * 10, 5, 3, a, 0, Math.PI * 2); ctx.fill();
-        }
-        ctx.fillStyle = `hsl(${35 + i * 10}, 90%, 70%)`;
-        ctx.beginPath(); ctx.arc(cx2, GROUND_Y + 8, 5, 0, Math.PI * 2); ctx.fill();
-      }
-    }
-
-    ctx.globalAlpha = 1;
+    drawGroundContact(ctx, "rgba(0,30,70,0.28)");
+    drawVignette(ctx, 0.26);
 
   } else if (level === 3) {
-    if (_bgForest) {
-      ctx.drawImage(_bgForest, 0, 0, CANVAS_W, CANVAS_H);
-      const skyGrad2 = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-      skyGrad2.addColorStop(0, "rgba(136,204,85,0.3)");
-      skyGrad2.addColorStop(1, "rgba(187,238,136,0.25)");
-      ctx.fillStyle = skyGrad2;
-      ctx.fillRect(0, 0, CANVAS_W, GROUND_Y);
-    } else {
-      const skyGrad2 = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-      skyGrad2.addColorStop(0, "#88cc55");
-      skyGrad2.addColorStop(1, "#bbee88");
-      ctx.fillStyle = skyGrad2;
-      ctx.fillRect(0, 0, CANVAS_W, GROUND_Y);
+    // Forest: shafts of light through the canopy plus drifting leaves.
+    for (let i = 0; i < 4; i++) {
+      const lx = ((i * 240 + 60 - cameraX * 0.5) % (CANVAS_W + 300) + CANVAS_W + 300) % (CANVAS_W + 300) - 150;
+      ctx.fillStyle = `rgba(255,245,150,${0.06 + Math.sin(worldTime * 0.5 + i) * 0.025})`;
+      ctx.beginPath();
+      ctx.moveTo(lx, 0); ctx.lineTo(lx + 54, 0);
+      ctx.lineTo(lx + 104, GROUND_Y); ctx.lineTo(lx + 26, GROUND_Y);
+      ctx.closePath(); ctx.fill();
     }
-
-    if (_bgForest) ctx.globalAlpha = 0.3;
-
     for (let i = 0; i < 12; i++) {
-      const tx = ((i * 130 + 40 - bgScrollX * 0.4) % (CANVAS_W + 250) + CANVAS_W + 250) % (CANVAS_W + 250) - 125;
-      ctx.fillStyle = `hsl(25, 45%, ${18 + (i % 3) * 4}%)`;
-      ctx.fillRect(tx - 12, GROUND_Y - 260, 24, 260);
+      const t = worldTime * 0.55 + i * 1.7;
+      const lx = ((i * 128 - cameraX * 0.45 + Math.sin(t) * 40) % (CANVAS_W + 120) + CANVAS_W + 120) % (CANVAS_W + 120) - 60;
+      const ly = ((t * 26) % (GROUND_Y + 60)) - 30;
+      ctx.save();
+      ctx.translate(lx, ly);
+      ctx.rotate(Math.sin(t * 1.3) * 0.9);
+      ctx.fillStyle = ["rgba(190,120,40,0.55)", "rgba(150,170,40,0.5)", "rgba(120,80,30,0.5)"][i % 3];
+      ctx.beginPath(); ctx.ellipse(0, 0, 6, 3, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
     }
+    drawGroundContact(ctx, "rgba(40,60,10,0.30)");
+    drawVignette(ctx, 0.24);
 
-    // Dense layered canopy
-    const canopyGrad = ctx.createLinearGradient(0, 0, 0, 110);
-    canopyGrad.addColorStop(0, "#1a6600");
-    canopyGrad.addColorStop(1, "#338811");
-    ctx.fillStyle = canopyGrad;
-    ctx.fillRect(0, 0, CANVAS_W, 100);
-    // Canopy bumps
-    for (let i = 0; i < 9; i++) {
-      const cx3 = ((i * 120 - bgScrollX * 0.55) % (CANVAS_W + 220) + CANVAS_W + 220) % (CANVAS_W + 220) - 110;
-      ctx.fillStyle = `hsl(${115 + (i % 4) * 5}, 60%, ${22 + (i % 3) * 4}%)`;
-      ctx.beginPath(); ctx.ellipse(cx3, 85, 85, 55, 0, 0, Math.PI * 2); ctx.fill();
+  } else {
+    // Volcano: hot haze, rising embers, and a slow pulse of eruption light.
+    const pulse = 0.5 + Math.sin(worldTime * 0.9) * 0.5;
+    ctx.fillStyle = `rgba(255,90,20,${0.05 + pulse * 0.06})`;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    for (let i = 0; i < 22; i++) {
+      const ex = ((i * 73 - cameraX * 0.35 + 20) % (CANVAS_W + 60) + CANVAS_W + 60) % (CANVAS_W + 60) - 30;
+      const ey = GROUND_Y - ((worldTime * 52 + i * 47) % (GROUND_Y + 60));
+      const life = 1 - (GROUND_Y - ey) / (GROUND_Y + 60);
+      ctx.fillStyle = `rgba(255,${150 + (i % 4) * 22},40,${0.55 * life})`;
+      ctx.beginPath();
+      ctx.arc(ex + Math.sin(ey * 0.06 + i) * 8, ey, 1.4 + (i % 3) * 0.8, 0, Math.PI * 2);
+      ctx.fill();
     }
-    // Canopy lighter edge
-    ctx.fillStyle = "rgba(80,200,40,0.15)";
-    ctx.fillRect(0, 90, CANVAS_W, 20);
-
-    // Dappled sunlight patches
-    for (let i = 0; i < 5; i++) {
-      const lx = ((i * 170 + 50 - cameraX * 0.7) % (CANVAS_W + 200) + CANVAS_W + 200) % (CANVAS_W + 200) - 100;
-      ctx.fillStyle = `rgba(255,240,100,${0.07 + Math.sin(worldTime * 0.5 + i) * 0.03})`;
-      ctx.beginPath(); ctx.ellipse(lx, GROUND_Y - 80, 60, GROUND_Y * 0.8, 0, 0, Math.PI * 2); ctx.fill();
-    }
-
-    // Ground - rich moss green
-    const groundGrad = ctx.createLinearGradient(0, GROUND_Y, 0, CANVAS_H);
-    groundGrad.addColorStop(0, "#55aa22");
-    groundGrad.addColorStop(0.25, "#449911");
-    groundGrad.addColorStop(1, "#2a6600");
-    ctx.fillStyle = groundGrad;
-    ctx.fillRect(0, GROUND_Y, CANVAS_W, CANVAS_H - GROUND_Y);
-    // Ground detail grass tufts
-    for (let i = 0; i < 14; i++) {
-      const gx = ((i * 75 + 20 - cameraX * 0.85) % (CANVAS_W + 100) + CANVAS_W + 100) % (CANVAS_W + 100) - 50;
-      ctx.fillStyle = `hsl(${115 + (i % 3) * 8}, 65%, ${32 + (i % 3) * 5}%)`;
-      ctx.fillRect(gx - 3, GROUND_Y - 6, 3, 8);
-      ctx.fillRect(gx + 2, GROUND_Y - 9, 3, 11);
-      ctx.fillRect(gx + 6, GROUND_Y - 5, 3, 7);
-    }
-
-    // Colorful flowers
-    const flowerColors = [["#ee4444","#ff8888"], ["#4488ff","#88bbff"], ["#44dd44","#88ff88"], ["#ff88aa","#ffaacc"]];
-    for (let i = 0; i < 12; i++) {
-      const fx = ((i * 95 + 50 - cameraX * 0.88) % (CANVAS_W + 110) + CANVAS_W + 110) % (CANVAS_W + 110) - 55;
-      const [petal, center] = flowerColors[i % flowerColors.length];
-      ctx.fillStyle = petal;
-      for (let p = 0; p < 5; p++) {
-        const pa = (p / 5) * Math.PI * 2;
-        ctx.beginPath(); ctx.arc(fx + Math.cos(pa) * 4, GROUND_Y - 7 + Math.sin(pa) * 4, 3.5, 0, Math.PI * 2); ctx.fill();
-      }
-      ctx.fillStyle = center;
-      ctx.beginPath(); ctx.arc(fx, GROUND_Y - 7, 3, 0, Math.PI * 2); ctx.fill();
-    }
-
-    ctx.globalAlpha = 1;
-
-  } else if (level === 4) {
-    drawVolcanoBackground(ctx, bgScrollX, worldTime);
+    drawGroundContact(ctx, "rgba(60,10,0,0.35)");
+    drawVignette(ctx, 0.30);
   }
 }
 
@@ -1065,84 +1229,53 @@ function drawHowToPlay(ctx: CanvasRenderingContext2D) {
 // =====================================================================
 // START SCREEN
 // =====================================================================
-function drawStartScreen(ctx: CanvasRenderingContext2D, lolaFrame: number) {
-  const skyGrad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
-  skyGrad.addColorStop(0, "#33aaff");
-  skyGrad.addColorStop(0.55, "#88ddff");
-  skyGrad.addColorStop(1, "#f5d060");
-  ctx.fillStyle = skyGrad;
+function drawStartScreen(ctx: CanvasRenderingContext2D, lolaFrame: number, worldTime: number) {
+  // Her title card is the whole point of this screen, so it is shown as the
+  // artwork it is — full size, full opacity, centred. The previous version faded
+  // it to a watermark and printed a generated "The Egg Beach" over the top, which
+  // hid her hand-lettering behind a font.
+  const sky = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
+  sky.addColorStop(0, "#7ec8f0");
+  sky.addColorStop(0.62, "#bfe6f7");
+  sky.addColorStop(0.63, "#123f8f");
+  sky.addColorStop(0.72, "#1f5fbf");
+  sky.addColorStop(0.73, "#e8c86a");
+  sky.addColorStop(1, "#c8974a");
+  ctx.fillStyle = sky;
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-  ctx.fillStyle = "#1155cc";
-  ctx.fillRect(0, 305, CANVAS_W, 75);
-  ctx.fillStyle = "#aaddff";
-  for (let i = 0; i < 5; i++) {
-    ctx.beginPath(); ctx.ellipse(80 + i * 160, 305, 55, 9, 0, 0, Math.PI * 2); ctx.fill();
-  }
-  const beachGrad = ctx.createLinearGradient(0, 340, 0, CANVAS_H);
-  beachGrad.addColorStop(0, "#f5d060");
-  beachGrad.addColorStop(1, "#c88830");
-  ctx.fillStyle = beachGrad;
-  ctx.fillRect(0, 340, CANVAS_W, CANVAS_H - 340);
-  for (let i = 0; i < 4; i++) {
-    drawCloud(ctx, { x: 100 + i * 210, y: 55 + (i % 2) * 22, w: 90 + (i % 3) * 20 });
-  }
 
   if (_titleArt) {
+    const maxH = CANVAS_H * 0.82;
+    const h = maxH;
+    const w = h * (_titleArt.width / _titleArt.height);
+    const x = CANVAS_W / 2 - w / 2;
+    const y = CANVAS_H * 0.06 + Math.sin(worldTime * 1.1) * 3;
+
     ctx.save();
-    ctx.globalAlpha = 0.22;
-    ctx.drawImage(_titleArt, CANVAS_W / 2 - 200, 10, 400, 280);
-    ctx.globalAlpha = 1;
+    ctx.shadowColor = "rgba(0,0,0,0.45)";
+    ctx.shadowBlur = 18;
+    ctx.shadowOffsetY = 6;
+    ctx.drawImage(_titleArt, x, y, w, h);
     ctx.restore();
+
+    // Lola and Dawn peek in from either side of the card.
+    drawLola(ctx, x - 46, CANVAS_H - 86, 1, false, lolaFrame, 0);
+    drawDawn(ctx, x + w + 44, CANVAS_H - 92, -1, lolaFrame * 1.4);
+  } else {
+    ctx.fillStyle = "#ffcc22";
+    ctx.textAlign = "center";
+    ctx.font = "bold 52px monospace";
+    ctx.fillText("The Egg Beach", CANVAS_W / 2, 150);
   }
 
+  const alpha = 0.55 + Math.sin(worldTime * 3) * 0.45;
   ctx.textAlign = "center";
-  ctx.font = "bold 52px monospace";
-  ctx.fillStyle = "#003a80";
-  ctx.fillText("The Egg Beach", CANVAS_W / 2 + 3, 96);
-  const titleGrad = ctx.createLinearGradient(0, 52, 0, 102);
-  titleGrad.addColorStop(0, "#ffe840");
-  titleGrad.addColorStop(0.5, "#ffaa00");
-  titleGrad.addColorStop(1, "#ff6600");
-  ctx.fillStyle = titleGrad;
-  ctx.fillText("The Egg Beach", CANVAS_W / 2, 93);
-  ctx.fillStyle = "#003a80";
-  ctx.fillRect(CANVAS_W / 2 - 240, 105, 480, 3);
-
-  ctx.strokeStyle = "#2244aa";
-  ctx.lineWidth = 3;
-  const waveY = 115;
-  for (let side = 0; side < 2; side++) {
-    const sx = side === 0 ? 60 : CANVAS_W - 60;
-    const dir = side === 0 ? 1 : -1;
-    ctx.beginPath();
-    for (let i = 0; i < 8; i++) {
-      const angle = (i / 8) * Math.PI * 6;
-      const px = sx + Math.sin(angle) * 8 * dir;
-      const py = waveY + i * 30;
-      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-    }
-    ctx.stroke();
-  }
-
-  ctx.fillStyle = "#fff";
-  ctx.font = "bold 18px monospace";
-  ctx.fillText("Chase the chicken. Collect the eggs!", CANVAS_W / 2, 140);
-  ctx.font = "14px monospace";
-  ctx.fillStyle = "rgba(255,255,255,0.7)";
-  ctx.fillText("4 exciting levels! Beach · Ocean · Forest · Volcano", CANVAS_W / 2, 163);
-
-  drawLola(ctx, CANVAS_W / 2 - 50, 328, 1, false, lolaFrame, 0);
-  drawDawn(ctx, CANVAS_W / 2 + 55, 328, -1, lolaFrame);
-  ctx.fillStyle = "#ff4400";
-  ctx.font = "bold 28px monospace";
-  ctx.textAlign = "center";
-  ctx.fillText("→", CANVAS_W / 2 + 2, 325);
-
-  const alpha = 0.5 + Math.sin(Date.now() * 0.003) * 0.5;
   ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+  ctx.strokeStyle = "rgba(0,0,0,0.55)";
+  ctx.lineWidth = 4;
   ctx.font = "bold 20px monospace";
-  ctx.fillText("Press ENTER or Tap to Start", CANVAS_W / 2, CANVAS_H - 26);
-  ctx.textAlign = "left";
+  ctx.strokeText("Press ENTER or Tap to Start", CANVAS_W / 2, CANVAS_H - 16);
+  ctx.fillText("Press ENTER or Tap to Start", CANVAS_W / 2, CANVAS_H - 16);
 }
 
 // =====================================================================
@@ -1202,50 +1335,57 @@ function drawGameOver(ctx: CanvasRenderingContext2D) {
 // WIN SCREEN
 // =====================================================================
 function drawWinScreen(ctx: CanvasRenderingContext2D, animTime: number) {
-  const skyGrad = ctx.createLinearGradient(0, 0, 0, 310);
-  skyGrad.addColorStop(0, "#44aaff"); skyGrad.addColorStop(1, "#bbddff");
-  ctx.fillStyle = skyGrad; ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-  const groundGrad = ctx.createLinearGradient(0, 300, 0, CANVAS_H);
-  groundGrad.addColorStop(0, "#66cc33"); groundGrad.addColorStop(1, "#33aa11");
-  ctx.fillStyle = groundGrad; ctx.fillRect(0, 300, CANVAS_W, CANVAS_H - 300);
-  for (let i = 0; i < 4; i++) drawCloud(ctx, { x: 70 + i * 210, y: 50 + (i % 2) * 28, w: 80 + (i % 2) * 35 });
+  // Same treatment as the title: her "You win" drawing of the barn is the reward,
+  // so it is shown full size and full opacity rather than faded behind a font.
+  const sky = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
+  sky.addColorStop(0, "#63c0ef");
+  sky.addColorStop(0.75, "#bfe8fb");
+  sky.addColorStop(0.76, "#54b03a");
+  sky.addColorStop(1, "#2f7c22");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
   if (_winScreen) {
+    const h = CANVAS_H * 0.80;
+    const w = h * (_winScreen.width / _winScreen.height);
+    const pop = Math.min(1, animTime * 0.05);
+    const scale = 0.85 + pop * 0.15 + Math.sin(animTime * 0.06) * 0.012;
     ctx.save();
-    ctx.globalAlpha = 0.5;
-    ctx.drawImage(_winScreen, CANVAS_W / 2 - 140, 155, 280, 290);
-    ctx.globalAlpha = 1;
+    ctx.translate(CANVAS_W / 2, CANVAS_H * 0.5);
+    ctx.scale(scale, scale);
+    ctx.shadowColor = "rgba(0,0,0,0.45)";
+    ctx.shadowBlur = 20;
+    ctx.shadowOffsetY = 7;
+    ctx.drawImage(_winScreen, -w / 2, -h / 2, w, h);
     ctx.restore();
-  } else {
-    const bx = CANVAS_W / 2, by = 305;
-    ctx.fillStyle = "#a05020"; ctx.fillRect(bx - 65, by - 40, 130, 85);
-    ctx.fillStyle = "#cc3300";
-    ctx.beginPath(); ctx.moveTo(bx - 80, by - 40); ctx.lineTo(bx, by - 95); ctx.lineTo(bx + 80, by - 40); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = "#6a3010"; ctx.fillRect(bx - 20, by + 5, 40, 40);
-    ctx.beginPath(); ctx.arc(bx, by + 5, 20, Math.PI, 0); ctx.fill();
-    ctx.fillStyle = "#a0ccee"; ctx.fillRect(bx - 50, by - 28, 24, 20); ctx.fillRect(bx + 26, by - 28, 24, 20);
   }
 
-  for (let i = 0; i < 18; i++) {
-    const sx = ((i * 55 + animTime * 90 * (i % 2 === 0 ? 1 : -0.7)) % (CANVAS_W + 60) + CANVAS_W + 60) % (CANVAS_W + 60) - 30;
-    const sy = ((animTime * 45 + i * 35) % CANVAS_H);
-    ctx.fillStyle = `hsl(${(i * 22 + animTime * 70) % 360}, 95%, 62%)`;
-    ctx.save(); ctx.translate(sx, sy); ctx.rotate(animTime * 2 + i);
-    ctx.fillRect(-4, -4, 8, 8); ctx.restore();
+  // Confetti in her marker colours.
+  for (let i = 0; i < 46; i++) {
+    const t = animTime * 0.9 + i * 37;
+    const cx = (i * 97 + Math.sin(t * 0.02 + i) * 40) % CANVAS_W;
+    const cy = (t * 1.6 + i * 31) % (CANVAS_H + 40) - 20;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(t * 0.05 + i);
+    ctx.fillStyle = ["#e8434d", "#3f7fe0", "#f2c53d", "#7b46c4", "#3fae52"][i % 5];
+    ctx.fillRect(-3, -3, 6, 6);
+    ctx.restore();
   }
 
-  const bounce = Math.sin(animTime * 3.5) * 10;
   ctx.textAlign = "center";
-  ctx.fillStyle = "#003300"; ctx.font = "bold 56px monospace";
-  ctx.fillText("YOU WIN!", CANVAS_W / 2 + 3, 84 + bounce);
-  ctx.fillStyle = "#ffee22"; ctx.fillText("YOU WIN!", CANVAS_W / 2, 81 + bounce);
-  ctx.fillStyle = "#1a4400"; ctx.font = "18px monospace";
-  ctx.fillText("Lola catches Dawn just in time!", CANVAS_W / 2, 120);
-  ctx.fillText("The eggs are safe!", CANVAS_W / 2, 145);
-  const a = 0.5 + Math.sin(animTime * 3) * 0.5;
-  ctx.fillStyle = `rgba(0,80,0,${a})`; ctx.font = "bold 18px monospace";
-  ctx.fillText("Press ENTER or Tap to Play Again", CANVAS_W / 2, CANVAS_H - 18);
-  ctx.textAlign = "left";
+  ctx.fillStyle = "#ffffff";
+  ctx.strokeStyle = "rgba(0,0,0,0.6)";
+  ctx.lineWidth = 4;
+  ctx.font = "bold 17px monospace";
+  ctx.strokeText("Lola caught Dawn. The eggs are safe!", CANVAS_W / 2, 30);
+  ctx.fillText("Lola caught Dawn. The eggs are safe!", CANVAS_W / 2, 30);
+
+  const alpha = 0.55 + Math.sin(animTime * 0.08) * 0.45;
+  ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+  ctx.font = "bold 18px monospace";
+  ctx.strokeText("Press ENTER or Tap to Play Again", CANVAS_W / 2, CANVAS_H - 14);
+  ctx.fillText("Press ENTER or Tap to Play Again", CANVAS_W / 2, CANVAS_H - 14);
 }
 
 // =====================================================================
@@ -1257,6 +1397,7 @@ function initLevel(level: number, gs: GameStateData) {
   gs.player.onGround = true; gs.player.jumpsLeft = 2;
   gs.player.crouching = false; gs.player.facing = 1;
   gs.player.frame = 0; gs.player.frameTime = 0;
+  gs.player.coyote = 0; gs.player.jumpBuffer = 0; gs.player.squash = 0; gs.player.jumpHeld = false;
 
   gs.dawn.x = 360; gs.dawn.y = GROUND_Y - 35;
   gs.dawn.vx = DAWN_SPEED[level - 1]; gs.dawn.vy = 0;
@@ -1266,6 +1407,7 @@ function initLevel(level: number, gs: GameStateData) {
   gs.cameraX = 0;
   gs.eggsCollected = 0;
   gs.hurtFlash = 0;
+  gs.shake = 0;
   gs.hurtHearts = [];
   gs.eggBanner = null;
   gs.acorns = [];
@@ -1287,13 +1429,20 @@ function initLevel(level: number, gs: GameStateData) {
   // Level-specific entities
   gs.crabs = [];
   gs.jellyfish = [];
-  gs.waves = [];
   gs.branches = [];
   gs.roots = [];
 
   if (level === 1) {
-    for (let i = 0; i < 7; i++) gs.crabs.push({ x: 500 + i * 750, y: GROUND_Y - 10, dir: i % 2 === 0 ? 1 : -1, speed: 0.85 + Math.random() * 0.45 });
-    for (let i = 0; i < 8; i++) gs.waves.push({ x: 550 + i * 560, phase: Math.random() * Math.PI * 2, amplitude: 18 + Math.random() * 16 });
+    for (let i = 0; i < 9; i++) {
+      const cx = 500 + i * 560 + Math.random() * 120;
+      gs.crabs.push({
+        x: cx, y: GROUND_Y - 10, dir: i % 2 === 0 ? 1 : -1,
+        speed: 0.75 + Math.random() * 0.5,
+        kind: i % 3 === 2 ? 1 : 0,
+        phase: Math.random() * Math.PI * 2,
+        alert: 0, pauseTimer: Math.random() * 90, homeX: cx,
+      });
+    }
   }
   if (level === 2) {
     for (let i = 0; i < 9; i++) gs.jellyfish.push({ x: 380 + i * 510, startY: 140 + Math.random() * 160, phase: Math.random() * Math.PI * 2, speed: 0.75 + Math.random() * 0.6 });
@@ -1341,11 +1490,11 @@ export default function EggBeach() {
     return {
       state: "START", level: 1, lives: 10,
       eggsCollected: 0, score: 0,
-      player: { x: 100, y: GROUND_Y - 40, vx: 0, vy: 0, onGround: true, jumpsLeft: 2, crouching: false, facing: 1, frameTime: 0, frame: 0 },
+      player: { x: 100, y: GROUND_Y - 40, vx: 0, vy: 0, onGround: true, jumpsLeft: 2, crouching: false, facing: 1, frameTime: 0, frame: 0, coyote: 0, jumpBuffer: 0, squash: 0, jumpHeld: false },
       dawn: { x: 360, y: GROUND_Y - 35, vx: 2.8, vy: 0, onGround: true, dir: 1, frameTime: 0, frame: 0, reverseCooldown: 0 },
-      cameraX: 0, eggs: [], crabs: [], jellyfish: [], waves: [], branches: [], roots: [],
+      cameraX: 0, eggs: [], crabs: [], jellyfish: [], branches: [], roots: [],
       clouds: [], acorns: [], lavaDrops: [], lavaDropNextId: 0, lavaSpawnTimer: 0,
-      hurtFlash: 0, hurtHearts: [], eggBanner: null,
+      hurtFlash: 0, shake: 0, hurtHearts: [], eggBanner: null,
       bgScrollX: 0, storyTimer: 0, winAnimTime: 0, lolaIdleFrame: 0, lolaIdleTime: 0,
     };
   }
@@ -1387,6 +1536,7 @@ export default function EggBeach() {
     damageCooldownRef.current = 90; // ~1.5s cooldown
     // Hurt flash
     gs.hurtFlash = 1.0;
+    gs.shake = 9;
     // Spawn a single floating heart group anchored above the player
     const px = gs.player.x - gs.cameraX;
     const py = gs.player.y;
@@ -1433,6 +1583,7 @@ export default function EggBeach() {
 
       // Hurt flash decay
       if (gs.hurtFlash > 0) gs.hurtFlash = Math.max(0, gs.hurtFlash - dt * 0.04);
+      if (gs.shake > 0) gs.shake = Math.max(0, gs.shake - dt * 0.65);
 
       // Floating hearts
       gs.hurtHearts = gs.hurtHearts.map(h => ({ ...h, y: h.y + h.vy * dt, alpha: h.alpha - dt * 0.022 })).filter(h => h.alpha > 0);
@@ -1450,28 +1601,59 @@ export default function EggBeach() {
 
       const movingLeft = keys["a"] || keys["ArrowLeft"] || touch.left;
       const movingRight = keys["d"] || keys["ArrowRight"] || touch.right;
-      const wantJump = keys["w"] || keys["ArrowUp"] || keys[" "] || justPressedRef.current.jump;
+      const holdingJump = !!(keys["w"] || keys["ArrowUp"] || keys[" "] || touch.jump);
+      const wantJump = holdingJump || justPressedRef.current.jump;
       const wantCrouch = keys["s"] || keys["ArrowDown"] || touch.crouch;
       justPressedRef.current.jump = false;
 
       const spd = wantCrouch ? PLAYER_SPEED * 0.5 : PLAYER_SPEED;
-      if (movingLeft) { p.vx = -spd; p.facing = -1; }
-      else if (movingRight) { p.vx = spd; p.facing = 1; }
-      else p.vx *= 0.75;
+
+      // Accelerate toward the target speed instead of snapping to it, and skid
+      // to a halt when nothing is held. Under water everything is draggier.
+      const accel = (p.onGround ? ACCEL : AIR_ACCEL) * (isUnderwater ? 0.6 : 1);
+      const friction = p.onGround ? GROUND_FRICTION : AIR_FRICTION;
+      if (movingLeft) { p.vx = Math.max(p.vx - accel * dt, -spd); p.facing = -1; }
+      else if (movingRight) { p.vx = Math.min(p.vx + accel * dt, spd); p.facing = 1; }
+      else p.vx *= Math.pow(friction, dt);
+      if (Math.abs(p.vx) < 0.05) p.vx = 0;
 
       p.crouching = wantCrouch && p.onGround;
 
-      if (wantJump && p.jumpsLeft > 0) {
-        p.vy = jumpForce; p.jumpsLeft--;
-        p.onGround = false; playSoundJump();
+      // Buffer a jump pressed slightly too early, and keep coyote time ticking
+      // down after she leaves the ground.
+      if (wantJump) p.jumpBuffer = JUMP_BUFFER_FRAMES;
+      else p.jumpBuffer = Math.max(0, p.jumpBuffer - dt);
+      p.coyote = p.onGround ? COYOTE_FRAMES : Math.max(0, p.coyote - dt);
+
+      const canGroundJump = p.onGround || p.coyote > 0;
+      if (p.jumpBuffer > 0 && (canGroundJump || p.jumpsLeft > 0)) {
+        // A ground jump (real or via coyote time) never eats the double jump.
+        if (canGroundJump) p.jumpsLeft = 1;
+        else p.jumpsLeft--;
+        p.vy = jumpForce;
+        p.onGround = false;
+        p.coyote = 0;
+        p.jumpBuffer = 0;
+        p.squash = -0.16;  // stretch upward out of the crouch
+        playSoundJump();
       }
+
+      // Variable height: letting go early cuts the rise, so a tap is a hop.
+      if (!holdingJump && p.vy < 0 && !isUnderwater) p.vy *= Math.pow(JUMP_CUTOFF, dt * 0.5);
+      p.jumpHeld = holdingJump;
 
       p.vy += gravity * dt;
       if (isUnderwater) p.vy *= 0.97;
       p.x += p.vx * dt; p.y += p.vy * dt;
 
+      p.squash += (0 - p.squash) * 0.18 * dt;
+
       const groundY = GROUND_Y - 40;
-      if (p.y >= groundY) { p.y = groundY; p.vy = 0; p.onGround = true; p.jumpsLeft = 2; }
+      if (p.y >= groundY) {
+        // Squash proportional to impact, so a big drop lands heavier.
+        if (!p.onGround && p.vy > 4) p.squash = Math.min(0.32, p.vy * 0.022);
+        p.y = groundY; p.vy = 0; p.onGround = true; p.jumpsLeft = 2;
+      }
       if (p.y < 40) { p.y = 40; p.vy = 0; }
       if (p.x < gs.cameraX - 50) { p.x = gs.cameraX - 50; p.vx = 0; }
       if (p.x > LEVEL_LENGTH - 30) { p.x = LEVEL_LENGTH - 30; p.vx = 0; }
@@ -1527,10 +1709,32 @@ export default function EggBeach() {
       // L1 obstacles
       if (gs.level === 1) {
         for (const crab of gs.crabs) {
-          crab.x += crab.speed * crab.dir * dt;
-          if (crab.x < 60 || crab.x > LEVEL_LENGTH - 60) crab.dir *= -1;
+          // Notice the player, and scurry away from her rather than trundling
+          // back and forth on a fixed track. Being chased off is much more fun to
+          // watch than a hazard that ignores you.
+          const gap = p.x - crab.x;
+          const near = Math.abs(gap) < 150;
+          crab.alert += ((near ? 1 : 0) - crab.alert) * 0.08 * dt;
+
+          if (near) {
+            crab.dir = gap > 0 ? -1 : 1;
+            crab.x += crab.speed * 1.9 * crab.dir * dt;
+            crab.pauseTimer = 20;
+          } else if (crab.pauseTimer > 0) {
+            // Stopped, having a look around.
+            crab.pauseTimer -= dt;
+          } else {
+            crab.x += crab.speed * crab.dir * dt;
+            // Wander near home, and occasionally stop for a beat.
+            if (Math.abs(crab.x - crab.homeX) > 110) crab.dir = crab.x > crab.homeX ? -1 : 1;
+            if (Math.random() < 0.004 * dt) crab.pauseTimer = 40 + Math.random() * 70;
+          }
+
+          if (crab.x < 60) { crab.x = 60; crab.dir = 1; }
+          if (crab.x > LEVEL_LENGTH - 60) { crab.x = LEVEL_LENGTH - 60; crab.dir = -1; }
+
           const cx = crab.x - gs.cameraX;
-          if (rectsOverlap(p.x - gs.cameraX - 12, p.y - 28, 24, 60, cx - 20, crab.y - 10, 40, 20)) loseLife();
+          if (rectsOverlap(p.x - gs.cameraX - 12, p.y - 28, 24, 60, cx - 18, crab.y - 10, 36, 20)) loseLife();
         }
         // Waves are visual-only; crabs are the L1 hazard
       }
@@ -1613,7 +1817,7 @@ export default function EggBeach() {
     ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
 
     if (gs.state === "START") {
-      drawStartScreen(ctx, gs.lolaIdleFrame);
+      drawStartScreen(ctx, gs.lolaIdleFrame, worldTime);
     } else if (gs.state === "HOW_TO_PLAY") {
       drawHowToPlay(ctx);
     } else if (gs.state === "STORY") {
@@ -1623,6 +1827,19 @@ export default function EggBeach() {
     } else if (gs.state === "WIN") {
       drawWinScreen(ctx, gs.winAnimTime);
     } else if (gs.state === "PLAYING") {
+      // Kick the whole scene on impact. Decays fast and alternates direction, so
+      // it reads as a hit rather than as the game stuttering. Applied to the world
+      // only — the HUD is drawn after this is restored, so lives and the egg count
+      // stay rock steady while everything else rattles.
+      const shaking = gs.shake > 0.05;
+      if (shaking) {
+        ctx.save();
+        ctx.translate(
+          Math.sin(worldTime * 51) * gs.shake,
+          Math.cos(worldTime * 43) * gs.shake * 0.6,
+        );
+      }
+
       drawBackground(ctx, gs.level, gs.bgScrollX, worldTime, gs.clouds, gs.cameraX);
 
       // L3 overlays (branches, roots) — drawn before characters
@@ -1640,13 +1857,12 @@ export default function EggBeach() {
       // Eggs
       gs.eggs.forEach(e => {
         const esx = e.x - gs.cameraX;
-        if (!e.collected && esx > -25 && esx < CANVAS_W + 25) drawEgg(ctx, { ...e, x: esx });
+        if (!e.collected && esx > -25 && esx < CANVAS_W + 25) drawEgg(ctx, { ...e, x: esx }, worldTime);
       });
 
       // L1: waves + crabs
       if (gs.level === 1) {
-        gs.waves.forEach(w => { if (w.x - gs.cameraX > -140 && w.x - gs.cameraX < CANVAS_W + 140) drawWave(ctx, w, worldTime, gs.cameraX); });
-        gs.crabs.forEach(c => { const cx = c.x - gs.cameraX; if (cx > -40 && cx < CANVAS_W + 40) drawCrab(ctx, { ...c, x: cx }); });
+        gs.crabs.forEach(c => { const cx = c.x - gs.cameraX; if (cx > -40 && cx < CANVAS_W + 40) drawCrab(ctx, { ...c, x: cx }, worldTime); });
       }
 
       // L2: jellyfish
@@ -1666,7 +1882,7 @@ export default function EggBeach() {
 
       // Lola
       const psx = gs.player.x - gs.cameraX;
-      drawLola(ctx, psx, gs.player.y, gs.player.facing, gs.player.crouching, gs.player.frame, gs.hurtFlash);
+      drawLola(ctx, psx, gs.player.y, gs.player.facing, gs.player.crouching, gs.player.frame, gs.hurtFlash, gs.player.vx, !gs.player.onGround, gs.player.squash);
 
       // Dawn
       const dsx = gs.dawn.x - gs.cameraX;
@@ -1686,6 +1902,8 @@ export default function EggBeach() {
           drawFloatingHeart(ctx, hx, hy, h.alpha, i < gs.lives);
         }
       });
+
+      if (shaking) ctx.restore();
 
       // HUD
       drawHUD(ctx, gs.lives, gs.eggsCollected, gs.level);
@@ -1802,6 +2020,8 @@ export default function EggBeach() {
     load(dawnSpriteSrc, i => { _dawnSprite = i; });
     load(eggSpriteSrc, i => { _eggSprite = i; });
     load(jellyfishSpriteSrc, i => { _jellyfishSprite = i; });
+    load(crabSpriteSrc, i => { _crabSprite = i; });
+    load(crabGreenSpriteSrc, i => { _crabGreenSprite = i; });
     load(titleArtSrc, i => { _titleArt = i; });
     load(winScreenSrc, i => { _winScreen = i; });
     load(bgBeachSrc, i => { _bgBeach = i; });

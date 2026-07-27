@@ -3,9 +3,11 @@
 A 2D side-scrolling platformer built with my daughter on vacation. Lola chases Dawn the
 chicken across four levels — Beach, Ocean, Forest, Volcano — collecting eggs.
 
-All the art is her hand-drawn work, scanned in and animated procedurally: the drawing
-provides the recognizable body, and the legs, arms and wings are drawn and animated in
-code. Originals are kept in `attached_assets/`.
+All the art is her hand-drawn work, photographed and animated procedurally: the drawing
+provides the recognizable body, and the legs, arms, claws and wings are drawn and animated
+in code around it. The photos in `attached_assets/` are the source of truth —
+`scripts/extract_assets.py` rebuilds everything in `src/assets/` from them, so those PNGs
+are generated and shouldn't be hand-edited.
 
 ## Running it
 
