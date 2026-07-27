@@ -49,7 +49,9 @@ Push to `main`. That's the whole workflow:
    commit back
 3. ArgoCD sees the new tag and rolls it out (within ~3 min)
 
-Live at **http://172.18.1.231** — LAN only, on purpose. See `deploy/service.yaml`.
+Live at **https://egg.vgriz.com** (public, via the Cloudflare tunnel) and at
+**http://172.18.1.231** on the LAN. The public hostname is `deploy/ingress.yaml`; delete
+that file to go back to LAN-only. There is **no authentication** on the public URL.
 
 - Don't hand-edit the `image:` line; the workflow owns it.
 - To roll back, revert the deploy commit — the tag is a real commit, so it's reproducible.

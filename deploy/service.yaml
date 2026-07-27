@@ -1,10 +1,8 @@
-# LoadBalancer on a MetalLB IP, deliberately NOT an Ingress.
+# LoadBalancer on a MetalLB IP so the game keeps a direct LAN address that works
+# even if the tunnel or ingress-nginx is down.
 #
-# `*.vgriz.com` is a proxied CNAME to the Cloudflare tunnel, and the tunnel routes
-# the wildcard to ingress-nginx — so ANY Ingress host under vgriz.com is published
-# to the public internet the moment ArgoCD syncs it. This is a kid's game built
-# around family drawings, so it stays on the LAN. Adding an Ingress later is all it
-# would take to make it public; that should be a deliberate decision.
+# It is ALSO public at https://egg.vgriz.com via ingress.yaml — see that file.
+# Deleting the Ingress takes it back to LAN-only; deleting this Service does not.
 apiVersion: v1
 kind: Service
 metadata:

@@ -47,7 +47,8 @@ self-contained, which is what lets it run on the LAN with no internet.
 
 ## Deployment
 
-Hosted on the homelab Kubernetes cluster, **LAN-only** at <http://172.18.1.231>.
+Hosted on the homelab Kubernetes cluster: public at <https://egg.vgriz.com> and on the LAN
+at <http://172.18.1.231>.
 
 Pushing to `main` is the whole deploy. `.github/workflows/deploy.yml` builds
 `ghcr.io/flunkymonkey/egg-beach-platformer:sha-<commit>` (linux/amd64), then rewrites the
@@ -61,7 +62,10 @@ rollback.
 Before pushing a visual change, run `./scripts/screenshots.sh` and look at the result —
 a canvas game can compile perfectly and still render nothing.
 
-This is deliberately **not** exposed through the Cloudflare tunnel. Because `*.vgriz.com`
-is a proxied CNAME to the tunnel, any Ingress under that domain would be public to the
-whole internet. A `LoadBalancer` service on a MetalLB IP skips ingress-nginx entirely and
-stays on the LAN. Adding an Ingress is all it would take to publish it.
+The public path is Cloudflare edge → cloudflared tunnel → ingress-nginx → these pods. No
+port forwarding is involved and no DNS record was needed: `*.vgriz.com` already points at
+the tunnel, and the exact host in `deploy/ingress.yaml` beats that wildcard.
+
+The MetalLB `LoadBalancer` address is kept alongside it so the game still works on the LAN
+if the tunnel is down. Note the public URL has **no authentication** — anyone with the
+link can play.

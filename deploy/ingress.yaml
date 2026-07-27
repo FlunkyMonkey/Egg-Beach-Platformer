@@ -1,0 +1,31 @@
+# Publishes the game at https://egg.vgriz.com.
+#
+# No DNS record is needed: `*.vgriz.com` is already a proxied CNAME to the
+# cloudflared tunnel, and the tunnel already routes the wildcard to ingress-nginx.
+# An exact host here beats vgriz-page's `*.vgriz.com` catch-all, so this hostname
+# stops serving the landing page and serves the game instead.
+#
+# No TLS block: Cloudflare terminates HTTPS at the edge and the tunnel reaches
+# ingress-nginx over plain HTTP inside the cluster, same as every other app here.
+#
+# This is public to the entire internet with no authentication.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: egg-beach
+  namespace: egg-beach
+  labels:
+    app.kubernetes.io/name: egg-beach
+    app.kubernetes.io/part-of: family
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: egg.vgriz.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: egg-beach
+                port: {number: 80}
