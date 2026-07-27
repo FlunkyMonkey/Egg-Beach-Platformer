@@ -44,6 +44,8 @@ shot() {
 
 echo "Capturing:"
 shot title        ""
+shot lola-run-1   "?state=PLAYING&level=1&run=1"
+shot lola-run-2   "?state=PLAYING&level=3&run=1"
 shot how-to-play  "?state=HOW_TO_PLAY"
 shot level-1-beach   "?state=PLAYING&level=1"
 shot level-2-ocean   "?state=PLAYING&level=2"

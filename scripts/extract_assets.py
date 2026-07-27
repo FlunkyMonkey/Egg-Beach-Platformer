@@ -47,7 +47,9 @@ ROI = {
     # Each of these deliberately excludes her handwritten labels ("Egg", "Dawn",
     # "Donot Crach") — lovely on the page, unreadable at sprite size.
     "dawn": (0.05, 0.305, 0.78, 0.86),
-    "egg": (0.03, 0.22, 0.87, 0.795),
+    # Must include the whole outline: cropping through the base of the egg leaves
+    # the ring open, and an open ring encloses nothing to fill.
+    "egg": (0.03, 0.22, 0.87, 0.872),
     "jellyfish": (0.15, 0.18, 0.95, 0.90),
     # Backgrounds are cropped to the page exactly (no ink-tightening) so the
     # horizontal bands she painted — sky / sea / sand, canopy / trunks / floor —
@@ -103,17 +105,39 @@ def punch(a: np.ndarray, sat_boost: float = 1.30, contrast: float = 1.12) -> np.
     return np.clip(f, 0, 255).astype(np.uint8)
 
 
-def ink_mask(a: np.ndarray, v_rel: float = 0.86, s_thresh: float = 0.16) -> np.ndarray:
-    """Ink = clearly darker than this photo's own paper, or clearly coloured.
+def otsu(x: np.ndarray, bins: int = 256) -> float:
+    """Threshold that best separates two groups of values.
 
-    The threshold has to be relative. These pages were shot in warm indoor light
-    at different distances, so paper that reads as 0.95 bright in one photo reads
-    as 0.75 in another — an absolute cut marked the whole of Dawn's page as ink and
-    her cutout came out as a solid rectangle.
+    Used to split ink from paper. A percentile-of-brightness rule cannot do this:
+    on Dawn's page the ink sits at 0.08 and the paper at 0.65, and the rule put the
+    cut at 0.61 — right on top of the paper, so most of the page counted as ink and
+    her cutout came out inside-out, with the black outline transparent and the paper
+    opaque. That is what made the chicken look see-through in game. Otsu finds the
+    empty valley between the two peaks instead of assuming where it is.
     """
+    hist, edges = np.histogram(x, bins=bins, range=(0.0, 1.0))
+    hist = hist.astype(np.float64)
+    total = hist.sum()
+    if total == 0:
+        return 0.5
+    centres = (edges[:-1] + edges[1:]) / 2
+    w0 = np.cumsum(hist)
+    w1 = total - w0
+    valid = (w0 > 0) & (w1 > 0)
+    if not valid.any():
+        return 0.5
+    csum = np.cumsum(hist * centres)
+    m0 = np.divide(csum, w0, out=np.zeros_like(csum), where=w0 > 0)
+    m1 = np.divide(csum[-1] - csum, w1, out=np.zeros_like(csum), where=w1 > 0)
+    between = w0 * w1 * (m0 - m1) ** 2
+    between[~valid] = -1
+    return float(centres[int(np.argmax(between))])
+
+
+def ink_mask(a: np.ndarray, s_thresh: float = 0.26, margin: float = 1.0) -> np.ndarray:
+    """Ink = her marker strokes: much darker than the paper, or clearly coloured."""
     v, s = paper_stats(a)
-    paper_level = float(np.percentile(v, 82))
-    return (s > s_thresh) | (v < paper_level * v_rel)
+    return (s > s_thresh) | (v < otsu(v) * margin)
 
 
 def tighten_to_ink(im: Image.Image, pad_frac: float = 0.01) -> Image.Image:
@@ -145,13 +169,20 @@ def cutout(im: Image.Image, feather: float = 1.2, close: int = 21, fill: bool = 
     ink outward sidesteps that entirely.
     """
     a = np.asarray(im)
-    ink = ink_mask(a, v_rel=0.88, s_thresh=0.15)
+    ink = ink_mask(a)
     ink = ndimage.binary_opening(ink, np.ones((3, 3)))
 
     # Bridge the gaps where a marker line is thin or the pen lifted, so the shape
     # encloses properly and fill_holes has something to fill.
     if fill:
-        joined = ndimage.binary_closing(ink, np.ones((close, close)))
+        # Pad with empty space first. She drew to the edge of the paper, so her
+        # outline can run right up against the crop — and an interior that touches
+        # the image border is not "enclosed", so fill_holes leaves it hollow. That
+        # is what kept the egg a ring and the chicken a wireframe.
+        pad = close + 4
+        padded = np.pad(ink, pad, mode="constant", constant_values=False)
+
+        joined = ndimage.binary_closing(padded, np.ones((close, close)))
         lab, n = ndimage.label(joined)
         if n == 0:
             return im.convert("RGBA")
@@ -161,6 +192,7 @@ def cutout(im: Image.Image, feather: float = 1.2, close: int = 21, fill: bool = 
         # Undo the dilation the closing added, so edges sit on her actual strokes.
         subject = ndimage.binary_erosion(subject, np.ones((close // 2, close // 2)))
         subject = ndimage.binary_fill_holes(subject)
+        subject = subject[pad:-pad, pad:-pad]
     else:
         # For a drawing that is already solid where it should be solid — the
         # jellyfish is a filled dome with loose trailing tentacles — keep the ink

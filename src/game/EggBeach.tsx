@@ -177,97 +177,128 @@ function drawEggShape(ctx: CanvasRenderingContext2D, cx: number, cy: number, rx:
   ctx.fill();
 }
 
+// Lola's drawing, carved into limbs. Values are fractions of the sprite image, read
+// off her artwork: hair and face down to the shoulders, the purple dress as the
+// torso, an arm hanging either side of it, and two legs ending in her sandals.
+// `px`/`py` place each part's pivot inside its own slice — a shoulder at the top of
+// an arm, a hip at the top of a leg — so limbs rotate about a joint rather than
+// sliding around.
+interface LolaPart { sx: number; sy: number; sw: number; sh: number; px: number; py: number; }
+const LOLA_HEAD: LolaPart  = { sx: 0.06, sy: 0.00, sw: 0.88, sh: 0.45, px: 0.50, py: 0.94 };
+// The torso takes the whole dress, and each arm only the skin either side of it.
+// Slicing the arms wider drags dress pixels along, and they smear across her chest
+// as the arm swings.
+const LOLA_TORSO: LolaPart = { sx: 0.21, sy: 0.39, sw: 0.58, sh: 0.47, px: 0.50, py: 0.08 };
+const LOLA_ARM_L: LolaPart = { sx: 0.01, sy: 0.40, sw: 0.21, sh: 0.44, px: 0.55, py: 0.09 };
+const LOLA_ARM_R: LolaPart = { sx: 0.78, sy: 0.40, sw: 0.21, sh: 0.44, px: 0.45, py: 0.09 };
+const LOLA_LEG_L: LolaPart = { sx: 0.22, sy: 0.76, sw: 0.30, sh: 0.24, px: 0.50, py: 0.06 };
+const LOLA_LEG_R: LolaPart = { sx: 0.48, sy: 0.76, sw: 0.30, sh: 0.24, px: 0.50, py: 0.06 };
+
+const LOLA_W = 54, LOLA_H = 94;
+
+/** Draw one slice of her drawing, rotated about its joint. */
+function drawLolaPart(
+  ctx: CanvasRenderingContext2D, img: HTMLImageElement,
+  part: LolaPart, angle: number, dx = 0, dy = 0, alpha = 1,
+) {
+  const sx = part.sx * img.width;
+  const sy = part.sy * img.height;
+  const sw = part.sw * img.width;
+  const sh = part.sh * img.height;
+
+  // Where the slice sits when the figure is at rest, with her feet at y = 0.
+  const x = part.sx * LOLA_W - LOLA_W / 2;
+  const y = part.sy * LOLA_H - LOLA_H;
+  const w = part.sw * LOLA_W;
+  const h = part.sh * LOLA_H;
+
+  const jointX = x + w * part.px;
+  const jointY = y + h * part.py;
+
+  ctx.save();
+  if (alpha < 1) ctx.globalAlpha = alpha;
+  ctx.translate(jointX + dx, jointY + dy);
+  ctx.rotate(angle);
+  ctx.translate(-jointX, -jointY);
+  ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+  ctx.restore();
+}
+
+/**
+ * Lola, as an articulated figure rather than a single flat image.
+ *
+ * Her drawing is the texture for every limb — the head, dress, arms and legs are
+ * slices of the same picture — so it still reads as her artwork, but the parts
+ * swing from real joints. The previous version pasted the whole drawing down and
+ * waggled a couple of procedural capsules beside it for arms, which is what looked
+ * like a wobbling Twinkie stuck to her side.
+ */
 function drawLola(
   ctx: CanvasRenderingContext2D,
   x: number, y: number,
   facing: number, crouching: boolean,
   frame: number, hurtFlash: number,
-  speed = 0, airborne = false, squash = 0
+  speed = 0, airborne = false, squash = 0,
 ) {
+  if (!_lolaSprite) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.fillStyle = hurtFlash > 0 ? "#ff5533" : "#9955ff";
+    ctx.fillRect(-13, -46, 26, 46);
+    ctx.restore();
+    return;
+  }
+
+  const effort = Math.min(1, Math.abs(speed) / PLAYER_SPEED);
+  const cycle = frame * 0.62;
+
+  // Legs and arms swing in opposite phase, the way a stride actually balances.
+  const stride = effort * 0.72;
+  const legSwing = Math.sin(cycle) * stride;
+  const armSwing = -Math.sin(cycle) * (0.14 + stride * 0.62);
+
+  // Body rises and falls twice per stride, and leans into the run.
+  const bounce = airborne ? 0 : -Math.abs(Math.sin(cycle)) * effort * 3.2;
+  const lean = airborne ? 0.06 : effort * 0.13;
+
   ctx.save();
-  ctx.translate(x, y + 34);
-  ctx.scale(facing * 1.125, 1.125);
-  ctx.translate(0, -34);
+  ctx.translate(x, y + 40);
+  ctx.scale(facing * 1.06, 1.06);
 
-  // Squash on landing, stretch on take-off. Conserving volume (widening as she
-  // flattens) is what stops it looking like a glitch and starts it looking like
-  // weight.
-  const scaleY = (crouching ? 0.7 : 1) * (1 - squash);
-  ctx.scale(1 + squash * 0.45, scaleY);
-  const oy = crouching ? 10 : 0;
+  const crouchScale = crouching ? 0.74 : 1;
+  ctx.scale(1 + squash * 0.45, crouchScale * (1 - squash));
 
-  if (_lolaSprite) {
-    const sw = 52, sh = 90;
-    const bodyY = 34 - sh + oy * 0.5;
+  if (hurtFlash > 0) {
+    // Tint by drawing her twice; the second pass is clipped to her own pixels.
+    ctx.globalAlpha = 1;
+  }
 
-    // How hard she is working, 0..1 — drives the whole gait so that standing
-    // still, running and jumping all read differently.
-    const effort = airborne ? 1 : Math.min(1, Math.abs(speed) / PLAYER_SPEED);
-    const cycle = frame * 0.8;
-    const legBob = Math.sin(cycle) * (2 + effort * 3.5);
+  ctx.translate(0, bounce);
+  ctx.rotate(lean * (airborne ? 1 : 1));
 
-    // Legs, behind the drawing.
-    ctx.fillStyle = "#5533bb";
-    ctx.fillRect(-6, oy + 24, 5, 8 + legBob);
-    ctx.fillRect(1, oy + 24, 5, 8 - legBob);
-    ctx.fillStyle = "#2255dd";
-    ctx.fillRect(-8, oy + 30 + legBob * 0.4, 7, 4);
-    ctx.fillRect(1, oy + 30 - legBob * 0.4, 7, 4);
-
-    // Far arm goes behind her, near arm in front, so she has depth instead of
-    // looking like a flat cut-out sliding around. Her drawing has both arms held
-    // against her body, so these are drawn either side of it and swing opposite
-    // to the legs, the way arms actually counterbalance a stride.
-    const armSwing = Math.sin(cycle + Math.PI) * (0.25 + effort * 0.75);
-    const drawArm = (side: number, swing: number, shade: string) => {
-      ctx.save();
-      ctx.translate(side * 11, oy - 6);
-      // In the air both arms fly up; on the ground they pump.
-      ctx.rotate(airborne ? side * -0.9 - 0.3 : swing * side);
-      ctx.fillStyle = shade;
-      ctx.beginPath();
-      ctx.roundRect(-2.5, 0, 5.5, 17, 2.6);
-      ctx.fill();
-      ctx.fillStyle = "#f0b183";
-      ctx.beginPath();
-      ctx.arc(0.3, 17, 3.1, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    };
-
-    drawArm(-1, armSwing, "#c98a5f");   // far arm, shaded
-    ctx.drawImage(_lolaSprite, -sw / 2, bodyY, sw, sh);
-    drawArm(1, -armSwing, "#eda878");   // near arm, lit
-
-    if (hurtFlash > 0) {
-      ctx.save();
-      ctx.globalCompositeOperation = "source-atop";
-      ctx.globalAlpha = Math.min(hurtFlash * 2, 0.55);
-      ctx.fillStyle = "#ff2200";
-      ctx.fillRect(-sw / 2, bodyY, sw, sh);
-      ctx.restore();
-    }
+  if (airborne) {
+    // Tuck one leg, trail the other, and throw both arms up.
+    drawLolaPart(ctx, _lolaSprite, LOLA_ARM_L, -1.15);
+    drawLolaPart(ctx, _lolaSprite, LOLA_LEG_L, -0.55);
+    drawLolaPart(ctx, _lolaSprite, LOLA_LEG_R, 0.32);
+    drawLolaPart(ctx, _lolaSprite, LOLA_TORSO, 0);
+    drawLolaPart(ctx, _lolaSprite, LOLA_HEAD, -0.02);
+    drawLolaPart(ctx, _lolaSprite, LOLA_ARM_R, 1.05);
   } else {
-    if (hurtFlash > 0) {
-      ctx.globalAlpha = Math.min(hurtFlash * 2, 0.65);
-      ctx.fillStyle = "#ff2200";
-      ctx.fillRect(-14, oy - 32, 28, 50);
-      ctx.globalAlpha = 1;
-    }
-    const legBob = Math.sin(frame * 0.8) * 3;
-    ctx.fillStyle = "#5533bb"; ctx.fillRect(-7, oy + 22, 6, 8 + legBob); ctx.fillRect(2, oy + 22, 6, 8 - legBob);
-    ctx.fillStyle = "#2255dd"; ctx.fillRect(-9, oy + 28, 8, 6); ctx.fillRect(2, oy + 28, 8, 6);
-    ctx.fillStyle = "#8844ee";
-    ctx.beginPath(); ctx.moveTo(-10, oy + 14); ctx.lineTo(10, oy + 14); ctx.lineTo(13, oy + 27); ctx.lineTo(-13, oy + 27); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = "#9955ff"; ctx.fillRect(-8, oy - 2, 16, 18);
-    const armBob = Math.sin(frame * 0.8) * 4;
-    ctx.fillStyle = "#e09050"; ctx.fillRect(-13, oy + 1 + armBob, 6, 11); ctx.fillRect(7, oy + 1 - armBob, 6, 11);
-    ctx.fillStyle = "#e09050"; ctx.fillRect(-4, oy - 8, 8, 8);
-    ctx.beginPath(); ctx.ellipse(0, oy - 15, 10, 11, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = "#ffdd11"; ctx.beginPath(); ctx.ellipse(0, oy - 22, 11, 8, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillRect(-11, oy - 22, 4, 13); ctx.fillRect(7, oy - 22, 4, 13);
-    ctx.fillStyle = "#fff"; ctx.fillRect(-6, oy - 18, 5, 5); ctx.fillRect(2, oy - 18, 5, 5);
-    ctx.fillStyle = "#2255ee"; ctx.fillRect(-5, oy - 17, 3, 3); ctx.fillRect(3, oy - 17, 3, 3);
+    // Far side first so the near arm and leg overlap the body.
+    drawLolaPart(ctx, _lolaSprite, LOLA_ARM_L, -armSwing, 0, 0, 0.82);
+    drawLolaPart(ctx, _lolaSprite, LOLA_LEG_L, -legSwing, 0, 0, 0.86);
+    drawLolaPart(ctx, _lolaSprite, LOLA_TORSO, 0);
+    drawLolaPart(ctx, _lolaSprite, LOLA_LEG_R, legSwing);
+    drawLolaPart(ctx, _lolaSprite, LOLA_HEAD, Math.sin(cycle * 2) * effort * 0.02, 0, -Math.abs(Math.sin(cycle)) * effort * 0.6);
+    drawLolaPart(ctx, _lolaSprite, LOLA_ARM_R, armSwing);
+  }
+
+  if (hurtFlash > 0) {
+    ctx.globalCompositeOperation = "source-atop";
+    ctx.globalAlpha = Math.min(hurtFlash * 2, 0.55);
+    ctx.fillStyle = "#ff2200";
+    ctx.fillRect(-LOLA_W, -LOLA_H - 10, LOLA_W * 2, LOLA_H + 20);
   }
 
   ctx.restore();
@@ -288,12 +319,31 @@ function drawDawn(ctx: CanvasRenderingContext2D, x: number, y: number, dir: numb
     ctx.fillRect(-7, 24 + legBob * 0.3, 8, 3);
     ctx.fillRect(1, 24 - legBob * 0.3, 8, 3);
 
-    const dw = 48, dh = 48;
+    const dw = 48, dh = dw * (_dawnSprite.height / _dawnSprite.width);
     const bodyBob = Math.sin(frame * 1.2) * 1.5;
     const wingFlap = Math.sin(frame * 1.2) * 0.08;
     ctx.save();
     ctx.rotate(wingFlap);
-    ctx.drawImage(_dawnSprite, -dw / 2, -dh / 2 - 4 + bodyBob, dw, dh);
+
+    // Dawn is a white hen drawn as an open outline — the strokes never close, so
+    // there is no enclosed region to fill when her sprite is cut out, and she came
+    // out as a see-through wireframe over the scenery. Her body is painted here
+    // instead, behind the strokes, which keeps the drawing exactly as she made it.
+    const by = -dh / 2 - 4 + bodyBob;
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,0.28)";
+    ctx.shadowBlur = 4;
+    ctx.shadowOffsetY = 2;
+    ctx.fillStyle = "#fdfbf3";
+    ctx.beginPath();
+    ctx.ellipse(-1, by + dh * 0.52, dw * 0.34, dh * 0.26, -0.06, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(-dw * 0.20, by + dh * 0.34, dw * 0.17, dh * 0.16, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.drawImage(_dawnSprite, -dw / 2, by, dw, dh);
     ctx.restore();
   } else {
     ctx.fillStyle = "#ffbb22";
@@ -340,22 +390,27 @@ function drawEgg(ctx: CanvasRenderingContext2D, egg: Egg, worldTime: number) {
   ctx.ellipse(egg.x, egg.y + 15, 11 - Math.sin(egg.bobOffset) * 1.4, 3.4, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Warm halo. Her egg is drawn in pale marker on white paper, so against bright
-  // sand it had almost no edge contrast — this is what makes it findable.
-  const halo = ctx.createRadialGradient(egg.x, by, 3, egg.x, by, 24);
-  halo.addColorStop(0, `rgba(255,225,120,${0.40 + twinkle * 0.22})`);
-  halo.addColorStop(1, "rgba(255,215,90,0)");
+  // Halo. Her egg is pale marker on white paper, so on bright sand it had almost
+  // no edge contrast. A warm glow alone does not solve it — warm on yellow sand is
+  // still low contrast — so the halo is paired with a hard dark rim below, which
+  // works on sand, water, bark and ash alike.
+  const halo = ctx.createRadialGradient(egg.x, by, 3, egg.x, by, 26);
+  halo.addColorStop(0, `rgba(255,248,205,${0.42 + twinkle * 0.24})`);
+  halo.addColorStop(1, "rgba(255,240,170,0)");
   ctx.fillStyle = halo;
-  ctx.beginPath(); ctx.arc(egg.x, by, 24, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(egg.x, by, 26, 0, Math.PI * 2); ctx.fill();
 
   if (_eggSprite) {
-    const ew = 26, eh = ew * (_eggSprite.height / _eggSprite.width);
-    ctx.save();
-    // A soft dark rim lifts her pale outline off any background.
-    ctx.shadowColor = "rgba(90,50,0,0.55)";
-    ctx.shadowBlur = 5;
+    const ew = 30, eh = ew * (_eggSprite.height / _eggSprite.width);
+
+    // Sticker outline: a dark oval a little larger than the egg, so its silhouette
+    // separates from whatever is behind it.
+    ctx.fillStyle = "rgba(58,34,8,0.92)";
+    ctx.beginPath();
+    ctx.ellipse(egg.x, by, ew * 0.53, eh * 0.53, 0, 0, Math.PI * 2);
+    ctx.fill();
+
     ctx.drawImage(_eggSprite, egg.x - ew / 2, by - eh / 2, ew, eh);
-    ctx.restore();
   } else {
     const colors: Record<EggColor, [string, string]> = {
       red: ["#ee2222", "#ff8888"], blue: ["#2244ee", "#6699ff"],
@@ -1976,6 +2031,11 @@ export default function EggBeach() {
     const level = Number(params.get("level") ?? 1);
 
     if (level >= 1 && level <= MAX_LEVELS) gs.level = level;
+
+    // ?run=1 holds "move right" down, so a screenshot catches her mid-stride
+    // instead of standing still. Without it every capture shows the idle pose and
+    // the walk cycle can only be checked by playing.
+    if (params.get("run") === "1") keysRef.current["d"] = true;
     if (wanted === "PLAYING") {
       gs.state = "PLAYING";
       initLevel(gs.level, gs);
