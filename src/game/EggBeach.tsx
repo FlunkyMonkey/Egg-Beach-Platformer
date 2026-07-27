@@ -1,5 +1,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import * as Sfx from "./audio";
+import { compile, groundAt, surfaceUnder, solidNear, BASE_GROUND, type Terrain } from "./terrain";
+import { LEVEL_BEATS, CHECKPOINT_FRACS } from "./levels";
 import lolaSpriteSrc from "../assets/lola_sprite.png";
 import dawnSpriteSrc from "../assets/dawn_sprite.png";
 import eggSpriteSrc from "../assets/egg_sprite.png";
@@ -92,6 +94,12 @@ interface GameStateData {
     reverseCooldown: number;
   };
   cameraX: number;
+  cameraY: number;
+  terrain: Terrain;
+  checkpoints: { x: number; y: number; reached: boolean }[];
+  spawnX: number;
+  spawnY: number;
+  invuln: number;
   eggs: Egg[];
   crabs: Crab[];
   jellyfish: Jellyfish[];
@@ -143,6 +151,9 @@ const PLAYER_SPEED = 4.8;
 const LEVEL_LENGTH = 5000;
 const EGG_COLORS: EggColor[] = ["red", "blue", "green", "yellow", "purple"];
 const MAX_LEVELS = 4;
+// Per level, not per run. Five is plenty once a death costs you a checkpoint
+// rather than the whole game.
+const LIVES_PER_LEVEL = 5;
 
 // --- Movement feel -----------------------------------------------------
 // Instant velocity changes read as robotic, so the player accelerates into a
@@ -1029,6 +1040,110 @@ function drawBackground(
 // =====================================================================
 // HUD
 // =====================================================================
+// Ground colours per level, sampled from her drawings so the solid terrain reads
+// as part of the same picture rather than as a grey box sitting on top of it.
+const TERRAIN_COLOURS = [
+  { top: "#e8c451", face: "#c99a34", edge: "#8a6417" },  // beach sand
+  { top: "#cbb072", face: "#9a8350", edge: "#6a5833" },  // sea floor
+  { top: "#7fbf3a", face: "#5b8a26", edge: "#33511a" },  // forest floor
+  { top: "#5a4a45", face: "#33282a", edge: "#170f10" },  // volcanic rock
+];
+
+/**
+ * The solid ground, drawn as a foreground layer over her backdrop.
+ *
+ * The background art still supplies the horizon, but the surface the player
+ * actually stands on now has shape — ledges, steps and holes — so it has to be
+ * drawn rather than implied by the drawing behind it.
+ */
+function drawTerrain(ctx: CanvasRenderingContext2D, gs: GameStateData) {
+  const c = TERRAIN_COLOURS[gs.level - 1];
+  const camX = gs.cameraX;
+  const camY = gs.cameraY;
+
+  for (const span of gs.terrain.spans) {
+    const x0 = span.x0 - camX;
+    const x1 = span.x1 - camX;
+    if (x1 < -40 || x0 > CANVAS_W + 40) continue;
+
+    if (span.top === null) {
+      // A hole: darkness, so it reads as somewhere you must not be.
+      const g = ctx.createLinearGradient(0, BASE_GROUND - camY, 0, CANVAS_H);
+      g.addColorStop(0, "rgba(0,0,0,0.55)");
+      g.addColorStop(1, "rgba(0,0,0,0.85)");
+      ctx.fillStyle = g;
+      ctx.fillRect(x0, BASE_GROUND - camY - 4, x1 - x0, CANVAS_H);
+      continue;
+    }
+
+    const top = span.top - camY;
+
+    // Part-transparent body, so the sand and forest floor she painted still show
+    // through the solid ground instead of being covered by a flat slab.
+    ctx.save();
+    ctx.globalAlpha = 0.62;
+    ctx.fillStyle = c.face;
+    ctx.fillRect(x0, top, x1 - x0, CANVAS_H - top + camY + 40);
+    ctx.restore();
+
+    // The cap is opaque: this is the line the eye reads as "stand here", and it
+    // is the one part that must not be ambiguous.
+    ctx.fillStyle = c.top;
+    ctx.fillRect(x0, top, x1 - x0, 8);
+    ctx.fillStyle = c.edge;
+    ctx.fillRect(x0, top + 8, x1 - x0, 2);
+
+    // Loose speckle along the surface so the cap is not a ruler-straight bar.
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = c.edge;
+    for (let sx = Math.max(x0, -20); sx < Math.min(x1, CANVAS_W + 20); sx += 17) {
+      const j = ((Math.sin(sx * 12.9898) * 43758.5453) % 1 + 1) % 1;
+      ctx.fillRect(sx + j * 6, top + 11 + j * 4, 3, 2);
+    }
+    ctx.restore();
+
+    // Vertical sides where the height steps, so ledges have a silhouette.
+    ctx.fillStyle = c.edge;
+    ctx.fillRect(x0 - 1, top, 2, 6);
+    ctx.fillRect(x1 - 1, top, 2, 6);
+  }
+}
+
+/** Checkpoint nests. Bright once banked, so progress is legible at a glance. */
+function drawCheckpoint(ctx: CanvasRenderingContext2D, x: number, y: number, reached: boolean, worldTime: number) {
+  ctx.save();
+  ctx.translate(x, y);
+  const bob = reached ? Math.sin(worldTime * 3) * 2 : 0;
+
+  ctx.strokeStyle = reached ? "#7a4a1c" : "#6a5a52";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.ellipse(0, -6, 16, 7, 0, Math.PI, 0);
+  ctx.stroke();
+  ctx.fillStyle = reached ? "#8a5a24" : "#6f625b";
+  ctx.beginPath();
+  ctx.ellipse(0, -5, 16, 8, 0, 0, Math.PI);
+  ctx.fill();
+
+  if (_eggSprite) {
+    const w = reached ? 22 : 18;
+    const h = w * (_eggSprite.height / _eggSprite.width);
+    ctx.globalAlpha = reached ? 1 : 0.45;
+    ctx.drawImage(_eggSprite, -w / 2, -h - 2 + bob, w, h);
+    ctx.globalAlpha = 1;
+  }
+
+  if (reached) {
+    const glow = ctx.createRadialGradient(0, -14, 2, 0, -14, 30);
+    glow.addColorStop(0, "rgba(255,235,150,0.35)");
+    glow.addColorStop(1, "rgba(255,225,120,0)");
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(0, -14, 30, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
 function drawHUD(ctx: CanvasRenderingContext2D, lives: number, eggsCollected: number, level: number) {
   ctx.fillStyle = "rgba(0,0,0,0.6)";
   ctx.fillRect(0, 0, CANVAS_W, 40);
@@ -1691,14 +1806,26 @@ function drawWinScreen(ctx: CanvasRenderingContext2D, animTime: number) {
 // WORLD INITIALIZATION
 // =====================================================================
 function initLevel(level: number, gs: GameStateData) {
-  gs.player.x = 100; gs.player.y = GROUND_Y - 40;
+  // Terrain first: everything else is placed relative to where the ground is.
+  gs.terrain = compile(LEVEL_BEATS[level - 1]);
+  gs.checkpoints = CHECKPOINT_FRACS.map(f => {
+    const spot = solidNear(gs.terrain, gs.terrain.length * f);
+    return { x: spot ? spot.x : gs.terrain.length * f, y: spot ? spot.top : BASE_GROUND, reached: false };
+  });
+  gs.spawnX = 100;
+  gs.spawnY = (groundAt(gs.terrain, 100) ?? BASE_GROUND) - 40;
+  gs.invuln = 0;
+  gs.cameraY = 0;
+  gs.lives = LIVES_PER_LEVEL;
+
+  gs.player.x = gs.spawnX; gs.player.y = gs.spawnY;
   gs.player.vx = 0; gs.player.vy = 0;
   gs.player.onGround = true; gs.player.jumpsLeft = 2;
   gs.player.crouching = false; gs.player.facing = 1;
   gs.player.frame = 0; gs.player.frameTime = 0;
   gs.player.coyote = 0; gs.player.jumpBuffer = 0; gs.player.squash = 0; gs.player.jumpHeld = false;
 
-  gs.dawn.x = 360; gs.dawn.y = GROUND_Y - 35;
+  gs.dawn.x = 360; gs.dawn.y = (groundAt(gs.terrain, 360) ?? BASE_GROUND) - 35;
   gs.dawn.vx = DAWN_SPEED[level - 1]; gs.dawn.vy = 0;
   gs.dawn.onGround = true; gs.dawn.dir = 1;
   gs.dawn.frame = 0; gs.dawn.frameTime = 0; gs.dawn.reverseCooldown = 0;
@@ -1714,15 +1841,25 @@ function initLevel(level: number, gs: GameStateData) {
   gs.lavaDropNextId = 0;
   gs.lavaSpawnTimer = 0;
 
-  // Eggs (10 per level)
+  // Eggs. Every other one goes on a platform, so collecting is a reason to climb
+  // rather than something that happens while walking. Her note says to collect
+  // them by jumping on them, which only becomes true once they are off the floor.
   gs.eggs = [];
-  const usedX = new Set<number>();
+  const plats = [...gs.terrain.platforms];
   for (let i = 0; i < 10; i++) {
-    let ex = 0;
-    do { ex = Math.floor(Math.random() * (LEVEL_LENGTH - 500)) + 250; }
-    while (usedX.has(Math.floor(ex / 80)));
-    usedX.add(Math.floor(ex / 80));
-    gs.eggs.push({ id: i, x: ex, y: GROUND_Y - 16, color: EGG_COLORS[i % EGG_COLORS.length], collected: false, bobOffset: Math.random() * Math.PI * 2 });
+    const wantPlatform = i % 2 === 1 && plats.length > 0;
+    let ex: number, ey: number;
+    if (wantPlatform) {
+      const pl = plats.splice(Math.floor(Math.random() * plats.length), 1)[0];
+      ex = (pl.x0 + pl.x1) / 2;
+      ey = pl.top - 18;
+    } else {
+      const target = 300 + (i / 10) * (gs.terrain.length - 700) + Math.random() * 160;
+      const spot = solidNear(gs.terrain, target);
+      ex = spot ? spot.x : target;
+      ey = (spot ? spot.top : BASE_GROUND) - 16;
+    }
+    gs.eggs.push({ id: i, x: ex, y: ey, color: EGG_COLORS[i % EGG_COLORS.length], collected: false, bobOffset: Math.random() * Math.PI * 2 });
   }
 
   // Level-specific entities
@@ -1733,9 +1870,11 @@ function initLevel(level: number, gs: GameStateData) {
 
   if (level === 1) {
     for (let i = 0; i < 9; i++) {
-      const cx = 500 + i * 560 + Math.random() * 120;
+      const want = 500 + i * (gs.terrain.length - 900) / 9 + Math.random() * 90;
+      const spot = solidNear(gs.terrain, want);
+      const cx = spot ? spot.x : want;
       gs.crabs.push({
-        x: cx, y: GROUND_Y - 10, dir: i % 2 === 0 ? 1 : -1,
+        x: cx, y: (spot ? spot.top : BASE_GROUND) - 10, dir: i % 2 === 0 ? 1 : -1,
         speed: 0.75 + Math.random() * 0.5,
         kind: i % 3 === 2 ? 1 : 0,
         phase: Math.random() * Math.PI * 2,
@@ -1747,8 +1886,15 @@ function initLevel(level: number, gs: GameStateData) {
     for (let i = 0; i < 9; i++) gs.jellyfish.push({ x: 380 + i * 510, startY: 140 + Math.random() * 160, phase: Math.random() * Math.PI * 2, speed: 0.75 + Math.random() * 0.6 });
   }
   if (level === 3) {
-    for (let i = 0; i < 11; i++) gs.branches.push({ x: 500 + i * 400, y: GROUND_Y - 70 - Math.random() * 12, w: 80 + Math.random() * 60 });
-    for (let i = 0; i < 16; i++) gs.roots.push({ x: 400 + i * 290 });
+    // The branches ARE the platforms — drawing them from the terrain is what makes
+    // the forest climbable instead of decorated.
+    for (const pl of gs.terrain.platforms) {
+      gs.branches.push({ x: pl.x0, y: pl.top, w: pl.x1 - pl.x0 });
+    }
+    for (let i = 0; i < 14; i++) {
+      const spot = solidNear(gs.terrain, 400 + i * (gs.terrain.length - 700) / 14);
+      if (spot) gs.roots.push({ x: spot.x });
+    }
     // Pre-place acorns — wider spacing, lazier speed
     for (let i = 0; i < 10; i++) {
       const ax = 500 + i * 480 + Math.random() * 80;
@@ -1788,11 +1934,14 @@ export default function EggBeach() {
 
   function makeInitialState(): GameStateData {
     return {
-      state: "INTRO", level: 1, lives: 10,
+      state: "INTRO", level: 1, lives: LIVES_PER_LEVEL,
       eggsCollected: 0, score: 0,
       player: { x: 100, y: GROUND_Y - 40, vx: 0, vy: 0, onGround: true, jumpsLeft: 2, crouching: false, facing: 1, frameTime: 0, frame: 0, coyote: 0, jumpBuffer: 0, squash: 0, jumpHeld: false },
       dawn: { x: 360, y: GROUND_Y - 35, vx: 2.8, vy: 0, onGround: true, dir: 1, frameTime: 0, frame: 0, reverseCooldown: 0 },
-      cameraX: 0, eggs: [], crabs: [], jellyfish: [], branches: [], roots: [],
+      cameraX: 0, cameraY: 0,
+      terrain: compile(LEVEL_BEATS[0]),
+      checkpoints: [], spawnX: 100, spawnY: BASE_GROUND - 40, invuln: 0,
+      eggs: [], crabs: [], jellyfish: [], branches: [], roots: [],
       clouds: [], acorns: [], lavaDrops: [], lavaDropNextId: 0, lavaSpawnTimer: 0,
       hurtFlash: 0, shake: 0, hurtHearts: [], eggBanner: null,
       bgScrollX: 0, storyTimer: 0, introTime: 0, winAnimTime: 0, lolaIdleFrame: 0, lolaIdleTime: 0,
@@ -1829,8 +1978,8 @@ export default function EggBeach() {
   }, []);
 
   const loseLife = useCallback(() => {
-    if (damageCooldownRef.current > 0) return;
     const gs = gsRef.current!;
+    if (damageCooldownRef.current > 0 || gs.invuln > 0) return;
     gs.lives--;
     playSoundLifeLost();
     damageCooldownRef.current = 90; // ~1.5s cooldown
@@ -1850,9 +1999,15 @@ export default function EggBeach() {
       gs.state = "GAME_OVER";
       Sfx.playGameOver();
     } else {
-      gs.player.x = Math.max(gs.cameraX + 60, 120);
-      gs.player.y = GROUND_Y - 40;
+      // Back to the last checkpoint, not to wherever you happened to be — falling
+      // down a hole used to drop you at the camera edge, which could be over the
+      // same hole.
+      gs.player.x = gs.spawnX;
+      gs.player.y = gs.spawnY;
       gs.player.vx = 0; gs.player.vy = 0;
+      gs.player.jumpsLeft = 2;
+      gs.invuln = 110;
+      gs.cameraX = Math.max(0, Math.min(gs.spawnX - CANVAS_W * 0.35, gs.terrain.length - CANVAS_W));
     }
   }, []);
 
@@ -1894,6 +2049,18 @@ export default function EggBeach() {
       // Hurt flash decay
       if (gs.hurtFlash > 0) gs.hurtFlash = Math.max(0, gs.hurtFlash - dt * 0.04);
       if (gs.shake > 0) gs.shake = Math.max(0, gs.shake - dt * 0.65);
+      if (gs.invuln > 0) gs.invuln = Math.max(0, gs.invuln - dt);
+
+      // Bank progress on reaching a checkpoint.
+      for (const cp of gs.checkpoints) {
+        if (!cp.reached && gs.player.x >= cp.x) {
+          cp.reached = true;
+          gs.spawnX = cp.x;
+          gs.spawnY = cp.y - 40;
+          gs.eggBanner = { message: "✓ Checkpoint!", alpha: 1.5 };
+          Sfx.playLevelComplete();
+        }
+      }
 
       // Floating hearts
       gs.hurtHearts = gs.hurtHearts.map(h => ({ ...h, y: h.y + h.vy * dt, alpha: h.alpha - dt * 0.022 })).filter(h => h.alpha > 0);
@@ -1958,18 +2125,24 @@ export default function EggBeach() {
 
       p.squash += (0 - p.squash) * 0.18 * dt;
 
-      const groundY = GROUND_Y - 40;
-      if (p.y >= groundY) {
-        // Squash proportional to impact, so a big drop lands heavier.
-        if (!p.onGround && p.vy > 4) {
+      // Land on whatever surface is under her — terrain or a one-way platform.
+      const surf = surfaceUnder(gs.terrain, p.x, p.y + 40, p.vy);
+      const wasAirborne = !p.onGround;
+      if (surf !== null && p.y >= surf - 40) {
+        if (wasAirborne && p.vy > 4) {
           p.squash = Math.min(0.32, p.vy * 0.022);
           Sfx.playLand();
         }
-        p.y = groundY; p.vy = 0; p.onGround = true; p.jumpsLeft = 2;
+        p.y = surf - 40; p.vy = 0; p.onGround = true; p.jumpsLeft = 2;
+      } else {
+        p.onGround = false;
       }
+
+      // Fallen down a hole.
+      if (p.y > CANVAS_H + 120) loseLife();
       if (p.y < 40) { p.y = 40; p.vy = 0; }
       if (p.x < gs.cameraX - 50) { p.x = gs.cameraX - 50; p.vx = 0; }
-      if (p.x > LEVEL_LENGTH - 30) { p.x = LEVEL_LENGTH - 30; p.vx = 0; }
+      if (p.x > gs.terrain.length - 40) { p.x = gs.terrain.length - 40; p.vx = 0; }
 
       p.frameTime += dt; if (p.frameTime > 4) { p.frameTime = 0; p.frame++; }
 
@@ -1989,16 +2162,21 @@ export default function EggBeach() {
       dawn.vx = DAWN_SPEED[gs.level - 1] * dawn.dir;
       dawn.vy += gravity * dt;
       dawn.x += dawn.vx * dt; dawn.y += dawn.vy * dt;
-      if (dawn.y >= groundY) { dawn.y = groundY; dawn.vy = 0; dawn.onGround = true; }
+      const dSurf = surfaceUnder(gs.terrain, dawn.x, dawn.y + 35, dawn.vy);
+      if (dSurf !== null && dawn.y >= dSurf - 35) {
+        dawn.y = dSurf - 35; dawn.vy = 0; dawn.onGround = true;
+      } else {
+        dawn.onGround = false;
+      }
       if (dawn.y < 40) { dawn.y = 40; dawn.vy = 0; }
       if (dawn.x < 50) { dawn.x = 50; dawn.dir = 1; dawn.reverseCooldown = 100; }
-      if (dawn.x > LEVEL_LENGTH - 100) { dawn.x = LEVEL_LENGTH - 100; dawn.dir = -1; dawn.reverseCooldown = 100; }
+      if (dawn.x > gs.terrain.length - 120) { dawn.x = gs.terrain.length - 120; dawn.dir = -1; dawn.reverseCooldown = 100; }
       dawn.frameTime += dt; if (dawn.frameTime > 3) { dawn.frameTime = 0; dawn.frame++; }
 
       // Camera
       const targetCam = p.x - CANVAS_W * 0.35;
       gs.cameraX += (targetCam - gs.cameraX) * 0.12 * dt;
-      gs.cameraX = Math.max(0, Math.min(gs.cameraX, LEVEL_LENGTH - CANVAS_W));
+      gs.cameraX = Math.max(0, Math.min(gs.cameraX, gs.terrain.length - CANVAS_W));
       gs.bgScrollX = gs.cameraX;
 
       // Egg collection
@@ -2045,7 +2223,7 @@ export default function EggBeach() {
           }
 
           if (crab.x < 60) { crab.x = 60; crab.dir = 1; }
-          if (crab.x > LEVEL_LENGTH - 60) { crab.x = LEVEL_LENGTH - 60; crab.dir = -1; }
+          if (crab.x > gs.terrain.length - 60) { crab.x = gs.terrain.length - 60; crab.dir = -1; }
 
           const cx = crab.x - gs.cameraX;
           if (rectsOverlap(p.x - gs.cameraX - 12, p.y - 28, 24, 60, cx - 18, crab.y - 10, 36, 20)) loseLife();
@@ -2166,6 +2344,11 @@ export default function EggBeach() {
       }
 
       drawBackground(ctx, gs.level, gs.bgScrollX, worldTime, gs.clouds, gs.cameraX);
+      drawTerrain(ctx, gs);
+      gs.checkpoints.forEach(cp => {
+        const cx = cp.x - gs.cameraX;
+        if (cx > -40 && cx < CANVAS_W + 40) drawCheckpoint(ctx, cx, cp.y - gs.cameraY, cp.reached, worldTime);
+      });
 
       // L3 overlays (branches, roots) — drawn before characters
       if (gs.level === 3) {
