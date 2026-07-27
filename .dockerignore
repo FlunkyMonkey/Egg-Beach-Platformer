@@ -1,0 +1,7 @@
+.git
+.github
+node_modules
+dist
+attached_assets
+k8s
+README.md
