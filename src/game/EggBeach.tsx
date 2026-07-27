@@ -8,6 +8,11 @@ import crabSpriteSrc from "../assets/crab_sprite.png";
 import crabGreenSpriteSrc from "../assets/crab_green_sprite.png";
 import introPageSrc from "../assets/intro_page.png";
 import noteDawnSrc from "../assets/note_dawn.png";
+import noteEggSrc from "../assets/note_egg.png";
+import pageBeachSrc from "../assets/page_beach.png";
+import pageOceanSrc from "../assets/page_ocean.png";
+import pageForestSrc from "../assets/page_forest.png";
+import pageVolcanoSrc from "../assets/page_volcano.png";
 import titleArtSrc from "../assets/title_art.png";
 import winScreenSrc from "../assets/win_screen.png";
 import bgBeachSrc from "../assets/bg_beach.png";
@@ -23,6 +28,11 @@ let _crabSprite: HTMLImageElement | null = null;
 let _crabGreenSprite: HTMLImageElement | null = null;
 let _introPage: HTMLImageElement | null = null;
 let _noteDawn: HTMLImageElement | null = null;
+let _noteEgg: HTMLImageElement | null = null;
+let _pageBeach: HTMLImageElement | null = null;
+let _pageOcean: HTMLImageElement | null = null;
+let _pageForest: HTMLImageElement | null = null;
+let _pageVolcano: HTMLImageElement | null = null;
 let _titleArt: HTMLImageElement | null = null;
 let _winScreen: HTMLImageElement | null = null;
 let _bgBeach: HTMLImageElement | null = null;
@@ -1183,40 +1193,97 @@ function drawFloatingHeart(ctx: CanvasRenderingContext2D, x: number, y: number, 
 // =====================================================================
 // STORY CARD
 // =====================================================================
+const LEVEL_NAMES = ["Beach", "Ocean", "Forest", "Volcano"];
+
+/**
+ * The card before each level: the page she drew it from, then the story.
+ *
+ * Showing the source sketch here is the same idea as the intro — the levels are
+ * her drawings, so the drawing goes on screen right before you walk into it. On
+ * level one her own instruction for the eggs is shown alongside, because it is a
+ * real gameplay hint and she wrote it.
+ */
 function drawStoryCard(ctx: CanvasRenderingContext2D, level: number) {
-  const bgColors = ["#1a6aaa", "#003366", "#1a5a10", "#330808"];
-  const accentColors = ["#3399ff", "#0055cc", "#44bb22", "#cc3300"];
-  ctx.fillStyle = bgColors[level - 1];
+  const page = [_pageBeach, _pageOcean, _pageForest, _pageVolcano][level - 1];
+  const accent = ["#3399ff", "#0055cc", "#44bb22", "#cc5500"][level - 1];
+
+  ctx.fillStyle = "#12101a";
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-  // Stripe pattern
-  ctx.strokeStyle = "rgba(255,255,255,0.1)";
-  ctx.lineWidth = 2;
-  for (let i = 0; i < 10; i++) {
-    ctx.beginPath(); ctx.moveTo(0, i * 50); ctx.lineTo(CANVAS_W, i * 50); ctx.stroke();
+
+  // The page again, blurred and dimmed, as the backdrop it is sitting on.
+  if (page) {
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.filter = "blur(24px) brightness(0.42)";
+    const bw = CANVAS_W * 1.25;
+    const bh = bw * (page.height / page.width);
+    ctx.drawImage(page, CANVAS_W / 2 - bw / 2, CANVAS_H / 2 - bh / 2, bw, bh);
+    ctx.restore();
   }
-  // Card
-  ctx.fillStyle = "rgba(255,255,255,0.97)";
-  ctx.beginPath(); ctx.roundRect(70, 70, 660, 305, 18); ctx.fill();
-  // Card top band
-  ctx.fillStyle = accentColors[level - 1];
-  ctx.beginPath(); ctx.roundRect(70, 70, 660, 46, [18, 18, 0, 0]); ctx.fill();
-  // Title
+
+  // The sketch itself, pinned slightly askew like it is lying on a desk.
+  let pageRight = 60;
+  if (page) {
+    const ph = 316;
+    const pw = ph * (page.width / page.height);
+    const cx = 40 + pw / 2;
+    ctx.save();
+    ctx.translate(cx, CANVAS_H / 2 - 12);
+    ctx.rotate(-0.03);
+    ctx.shadowColor = "rgba(0,0,0,0.55)";
+    ctx.shadowBlur = 20;
+    ctx.shadowOffsetY = 8;
+    ctx.drawImage(page, -pw / 2, -ph / 2, pw, ph);
+    ctx.restore();
+    pageRight = 40 + pw;
+  }
+
+  const tx = pageRight + 34;
+  const tw = CANVAS_W - tx - 34;
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = accent;
+  ctx.font = "bold 12px monospace";
+  ctx.fillText("THE DRAWING THIS LEVEL CAME FROM", tx, 74);
+
   ctx.fillStyle = "#ffffff";
-  ctx.font = "bold 26px monospace";
-  ctx.textAlign = "center";
-  ctx.fillText(`⭐ Level ${level}`, CANVAS_W / 2, 101);
-  // Story text
-  ctx.fillStyle = "#2a2a2a";
-  ctx.font = "15px monospace";
-  const lines = STORY_TEXTS[level - 1].split("\n");
-  lines.forEach((line, i) => {
-    ctx.fillText(line, CANVAS_W / 2, 140 + i * 28);
+  ctx.font = "bold 30px monospace";
+  ctx.fillText(`${level}. ${LEVEL_NAMES[level - 1]}`, tx, 110);
+
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(tx, 122); ctx.lineTo(tx + 92, 122); ctx.stroke();
+
+  ctx.fillStyle = "rgba(255,255,255,0.92)";
+  ctx.font = "13px monospace";
+  STORY_TEXTS[level - 1].split("\n").forEach((line, i) => {
+    ctx.fillText(line, tx, 154 + i * 21);
   });
-  // Prompt
+
+  // Her own note about the eggs, shown once, on the level where it applies.
+  if (level === 1 && _noteEgg) {
+    const nw = Math.min(tw, 250);
+    const nh = nw * (_noteEgg.height / _noteEgg.width);
+    const ny = CANVAS_H - 108;
+    ctx.save();
+    ctx.translate(tx + nw / 2, ny);
+    ctx.rotate(0.02);
+    ctx.shadowColor = "rgba(0,0,0,0.5)";
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetY = 4;
+    ctx.drawImage(_noteEgg, -nw / 2, -nh / 2, nw, nh);
+    ctx.restore();
+    ctx.fillStyle = "rgba(255,255,255,0.6)";
+    ctx.font = "11px monospace";
+    ctx.fillText("— her rule for the eggs", tx, ny + nh / 2 + 16);
+  }
+
   const alpha = 0.5 + Math.sin(Date.now() * 0.003) * 0.5;
-  ctx.fillStyle = `rgba(30,80,180,${alpha})`;
-  ctx.font = "bold 17px monospace";
-  ctx.fillText("[ Tap / Press Enter to Start ]", CANVAS_W / 2, CANVAS_H - 28);
+  ctx.textAlign = "center";
+  ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+  ctx.font = "bold 15px monospace";
+  ctx.fillText("Tap  /  Press Enter to Start", CANVAS_W / 2, CANVAS_H - 16);
   ctx.textAlign = "left";
 }
 
@@ -2295,6 +2362,11 @@ export default function EggBeach() {
     load(crabGreenSpriteSrc, i => { _crabGreenSprite = i; });
     load(introPageSrc, i => { _introPage = i; });
     load(noteDawnSrc, i => { _noteDawn = i; });
+    load(noteEggSrc, i => { _noteEgg = i; });
+    load(pageBeachSrc, i => { _pageBeach = i; });
+    load(pageOceanSrc, i => { _pageOcean = i; });
+    load(pageForestSrc, i => { _pageForest = i; });
+    load(pageVolcanoSrc, i => { _pageVolcano = i; });
     load(titleArtSrc, i => { _titleArt = i; });
     load(winScreenSrc, i => { _winScreen = i; });
     load(bgBeachSrc, i => { _bgBeach = i; });

@@ -46,6 +46,12 @@ PHOTOS = {
     "intro_page": "IMG_4551_1776200089550.jpg",
     "note_dawn": "IMG_4541_1776200154020.jpg",
     "note_egg": "IMG_4542_1776200148711.jpg",
+    # The level pages as photographs, shown on each level's story card so the
+    # drawing that inspired the level is visible right before you play it.
+    "page_beach": "IMG_4544_1776200138161.jpg",
+    "page_ocean": "IMG_4546_1776200131470.jpg",
+    "page_forest": "IMG_4547_1776200120249.jpg",
+    "page_volcano": "IMG_4549_1776200112119.jpg",
 }
 
 ROI = {
@@ -72,6 +78,11 @@ ROI = {
     "intro_page": (0.09, 0.005, 0.975, 0.995),
     "note_dawn": (0.06, 0.838, 0.95, 0.995),
     "note_egg": (0.03, 0.772, 0.82, 0.945),
+    # Looser than the bg_* crops above on purpose — these want to look like paper.
+    "page_beach": (0.10, 0.03, 0.96, 0.97),
+    "page_ocean": (0.32, 0.02, 0.92, 0.95),
+    "page_forest": (0.29, 0.01, 0.95, 0.94),
+    "page_volcano": (0.04, 0.02, 0.87, 0.97),
 }
 
 
@@ -366,6 +377,10 @@ BACKGROUNDS = {
     "intro_page": ("intro_page", 1000),
     "note_dawn": ("note_dawn", 900),
     "note_egg": ("note_egg", 800),
+    "page_beach": ("page_beach", 620),
+    "page_ocean": ("page_ocean", 620),
+    "page_forest": ("page_forest", 620),
+    "page_volcano": ("page_volcano", 620),
 }
 
 
