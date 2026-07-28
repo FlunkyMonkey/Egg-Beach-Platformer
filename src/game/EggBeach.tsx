@@ -173,6 +173,9 @@ const MAX_LEVELS = 4;
 // Per level, not per run. Five is plenty once a death costs you a checkpoint
 // rather than the whole game.
 const LIVES_PER_LEVEL = 5;
+// How far a crab walks either side of where it starts. Short enough that you can
+// see both ends of the patrol from one screen, which is what makes it learnable.
+const CRAB_PATROL = 70;
 
 // --- Movement feel -----------------------------------------------------
 // Instant velocity changes read as robotic, so the player accelerates into a
@@ -1979,6 +1982,9 @@ function initLevel(level: number, gs: GameStateData) {
     for (let i = 0; i < 9; i++) {
       const want = 500 + i * (gs.terrain.length - 900) / 9 + Math.random() * 90;
       const spot = solidNear(gs.terrain, want);
+      // Skip anywhere too narrow to pace back and forth in.
+      const span = gs.terrain.spans.find(sp => spot && sp.x0 <= spot.x && sp.x1 > spot.x);
+      if (!spot || !span || span.x1 - span.x0 < CRAB_PATROL * 2 + 60) continue;
       const cx = spot ? spot.x : want;
       gs.crabs.push({
         x: cx, y: (spot ? spot.top : BASE_GROUND) - 10, dir: i % 2 === 0 ? 1 : -1,
@@ -2005,7 +2011,7 @@ function initLevel(level: number, gs: GameStateData) {
     // Pre-place acorns — wider spacing, lazier speed
     for (let i = 0; i < 10; i++) {
       const ax = 500 + i * 480 + Math.random() * 80;
-      gs.acorns.push({ x: ax, y: GROUND_Y - 60 - Math.random() * 100, vx: (Math.random() - 0.5) * 1.5, vy: 0 });
+      gs.acorns.push({ x: ax, y: -40 - Math.random() * 320, vx: (Math.random() - 0.5) * 1.2, vy: 0 });
     }
   }
   if (level === 4) {
@@ -2033,6 +2039,7 @@ export default function EggBeach() {
   const keysRef = useRef<Record<string, boolean>>({});
   const rafRef = useRef<number>(0);
   const controlsRef = useRef<HTMLDivElement | null>(null);
+  const dashBtnRef = useRef<HTMLButtonElement | null>(null);
   const lastTimeRef = useRef<number>(0);
   const touchRef = useRef<{ left: boolean; right: boolean; jump: boolean; crouch: boolean; dash: boolean }>({ left: false, right: false, jump: false, crouch: false, dash: false });
   const justPressedRef = useRef<{ jump: boolean }>({ jump: false });
@@ -2437,32 +2444,41 @@ export default function EggBeach() {
       // L1 obstacles
       if (gs.level === 1) {
         for (const crab of gs.crabs) {
-          // Notice the player, and scurry away from her rather than trundling
-          // back and forth on a fixed track. Being chased off is much more fun to
-          // watch than a hazard that ignores you.
-          const gap = p.x - crab.x;
-          const near = Math.abs(gap) < 150;
+          // A crab walks its patrol and nothing else.
+          //
+          // They used to notice Lola and scurry away at nearly double speed, which
+          // was fun to watch and horrible to play against: you could not learn
+          // where one would be, because where it went depended on where you were.
+          // The patrol is fixed now, so level one is something you read rather
+          // than something you react to. The claws and eye-stalks still track her,
+          // which keeps the character without making the movement unpredictable.
+          const near = Math.abs(p.x - crab.x) < 150;
           crab.alert += ((near ? 1 : 0) - crab.alert) * 0.08 * dt;
 
-          if (near) {
-            crab.dir = gap > 0 ? -1 : 1;
-            crab.x += crab.speed * 1.9 * crab.dir * dt;
-            crab.pauseTimer = 20;
-          } else if (crab.pauseTimer > 0) {
-            // Stopped, having a look around.
-            crab.pauseTimer -= dt;
-          } else {
+          crab.x += crab.speed * crab.dir * dt;
+
+          // Turn at the ends of the patrol.
+          if (crab.x > crab.homeX + CRAB_PATROL) { crab.x = crab.homeX + CRAB_PATROL; crab.dir = -1; }
+          if (crab.x < crab.homeX - CRAB_PATROL) { crab.x = crab.homeX - CRAB_PATROL; crab.dir = 1; }
+
+          // And turn at an edge, so they never walk out over a hole. A hazard
+          // hovering in mid-air above a gap you are trying to jump is unreadable.
+          const ahead = groundAt(gs.terrain, crab.x + crab.dir * 20);
+          const here = groundAt(gs.terrain, crab.x);
+          if (ahead === null || (here !== null && Math.abs(ahead - here) > 24)) {
+            crab.dir *= -1;
             crab.x += crab.speed * crab.dir * dt;
-            // Wander near home, and occasionally stop for a beat.
-            if (Math.abs(crab.x - crab.homeX) > 110) crab.dir = crab.x > crab.homeX ? -1 : 1;
-            if (Math.random() < 0.004 * dt) crab.pauseTimer = 40 + Math.random() * 70;
           }
+
+          // Sit on whatever surface is actually under them.
+          const surf = groundAt(gs.terrain, crab.x);
+          if (surf !== null) crab.y = surf - 10;
 
           if (crab.x < 60) { crab.x = 60; crab.dir = 1; }
           if (crab.x > gs.terrain.length - 60) { crab.x = gs.terrain.length - 60; crab.dir = -1; }
 
           const cx = crab.x - gs.cameraX;
-          if (rectsOverlap(p.x - gs.cameraX - 12, p.y - 28, 24, 60, cx - 18, crab.y - 10, 36, 20)) loseLife();
+          if (rectsOverlap(p.x - gs.cameraX - 12, p.y - 28, 24, 60, cx - 16, crab.y - 10, 32, 18)) loseLife();
         }
         // Waves are visual-only; crabs are the L1 hazard
       }
@@ -2495,16 +2511,26 @@ export default function EggBeach() {
           const rx = root.x - gs.cameraX;
           if (rectsOverlap(p.x - gs.cameraX - 12, p.y - 28, 24, 60, rx - 5, GROUND_Y - 24, 37, 24)) loseLife();
         }
-        // Update acorns (bounce physics — lazy fall)
+        // Acorns rain down and land. They used to bounce off a hard-coded flat
+        // line at the old GROUND_Y, which on this level is nowhere near the real
+        // surface — so one could sit forever on top of a branch you had to land
+        // on, hurting you every time with no way to avoid it.
+        //
+        // They now fall past the branches, land on the actual ground, and are
+        // immediately recycled to the canopy somewhere else near the player. That
+        // makes them weather you dodge rather than mines you memorise.
         for (const acorn of gs.acorns) {
           acorn.vy += GRAVITY * 0.48 * dt;
           acorn.x += acorn.vx * dt;
           acorn.y += acorn.vy * dt;
-          if (acorn.y >= GROUND_Y - 15) {
-            acorn.y = GROUND_Y - 15;
-            acorn.vy *= -0.65;
-            if (Math.abs(acorn.vy) < 0.6) acorn.vy = -(1.2 + Math.random() * 1.2);
-            acorn.vx += (Math.random() - 0.5) * 0.5;
+
+          const floor = groundAt(gs.terrain, acorn.x);
+          const landed = floor !== null && acorn.y >= floor - 12;
+          if (landed || acorn.y > CANVAS_H + 200) {
+            acorn.x = gs.cameraX - 80 + Math.random() * (CANVAS_W + 260);
+            acorn.y = -30 - Math.random() * 90;
+            acorn.vy = 0;
+            acorn.vx = (Math.random() - 0.5) * 1.2;
           }
           // Keep in world
           if (acorn.x < 50) { acorn.x = 50; acorn.vx = Math.abs(acorn.vx); }
@@ -2549,6 +2575,9 @@ export default function EggBeach() {
       const hide = gs.state === "INTRO";
       controlsRef.current.style.opacity = hide ? "0" : "1";
       controlsRef.current.style.pointerEvents = hide ? "none" : "";
+    }
+    if (dashBtnRef.current) {
+      dashBtnRef.current.style.opacity = gs.dashCharges > 0 ? "1" : "0.35";
     }
 
     ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
@@ -2868,6 +2897,15 @@ export default function EggBeach() {
           ))}
         </div>
         <div className="flex flex-col gap-2 pointer-events-auto">
+          {/* Dash. Without this the power every third egg buys is unreachable on a
+              tablet, which is where this is most likely to be played. It is always
+              visible so it can be discovered, and dims when there is no charge. */}
+          <button
+            ref={dashBtnRef}
+            className="w-16 h-16 rounded-xl flex items-center justify-center text-white text-2xl font-bold select-none"
+            style={{ background: "rgba(150,110,0,0.65)", border: "2px solid rgba(255,210,80,0.6)", WebkitTapHighlightColor: "transparent", opacity: 0.35, transition: "opacity 150ms ease" }}
+            {...makeTouchHandlers("dash")}
+          >⚡</button>
           <button className="w-16 h-16 rounded-xl flex items-center justify-center text-white text-3xl font-bold select-none"
             style={{ background: "rgba(0,0,150,0.65)", border: "2px solid rgba(100,150,255,0.5)", WebkitTapHighlightColor: "transparent" }}
             {...makeTouchHandlers("jump")}>▲</button>
