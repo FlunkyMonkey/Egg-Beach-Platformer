@@ -78,7 +78,11 @@ interface Jellyfish { x: number; startY: number; phase: number; speed: number; }
 interface Branch { x: number; y: number; w: number; }
 interface Root { x: number; }
 interface Cloud { x: number; y: number; w: number; }
-interface Acorn { x: number; y: number; vx: number; vy: number; }
+interface Acorn {
+  x: number; y: number; vx: number; vy: number;
+  /** Frames until this one drops again. Gaps in the rain are the whole point. */
+  wait: number;
+}
 interface LavaDrop { id: number; x: number; y: number; vy: number; }
 interface FloatingHeart { x: number; y: number; vy: number; alpha: number; }
 
@@ -2008,10 +2012,15 @@ function initLevel(level: number, gs: GameStateData) {
       const spot = solidNear(gs.terrain, 400 + i * (gs.terrain.length - 700) / 14);
       if (spot) gs.roots.push({ x: spot.x });
     }
-    // Pre-place acorns — wider spacing, lazier speed
-    for (let i = 0; i < 10; i++) {
-      const ax = 500 + i * 480 + Math.random() * 80;
-      gs.acorns.push({ x: ax, y: -40 - Math.random() * 320, vx: (Math.random() - 0.5) * 1.2, vy: 0 });
+    // Four, not ten, and staggered so they never arrive as a wall. Recycling
+    // each one the instant it landed turned this level into continuous rain.
+    for (let i = 0; i < 4; i++) {
+      const ax = 600 + i * 520 + Math.random() * 120;
+      gs.acorns.push({
+        x: ax, y: -40 - Math.random() * 120,
+        vx: (Math.random() - 0.5) * 0.7, vy: 0,
+        wait: i * 55 + Math.random() * 90,
+      });
     }
   }
   if (level === 4) {
@@ -2520,7 +2529,13 @@ export default function EggBeach() {
         // immediately recycled to the canopy somewhere else near the player. That
         // makes them weather you dodge rather than mines you memorise.
         for (const acorn of gs.acorns) {
-          acorn.vy += GRAVITY * 0.48 * dt;
+          // Sitting out its rest between drops.
+          if (acorn.wait > 0) { acorn.wait -= dt; continue; }
+
+          acorn.vy += GRAVITY * 0.20 * dt;
+          // Terminal velocity, so a long drop drifts down instead of arriving
+          // like a bullet you cannot react to.
+          acorn.vy = Math.min(acorn.vy, 2.6);
           acorn.x += acorn.vx * dt;
           acorn.y += acorn.vy * dt;
 
@@ -2530,7 +2545,8 @@ export default function EggBeach() {
             acorn.x = gs.cameraX - 80 + Math.random() * (CANVAS_W + 260);
             acorn.y = -30 - Math.random() * 90;
             acorn.vy = 0;
-            acorn.vx = (Math.random() - 0.5) * 1.2;
+            acorn.vx = (Math.random() - 0.5) * 0.7;
+            acorn.wait = 90 + Math.random() * 150;   // 1.5–4s of quiet
           }
           // Keep in world
           if (acorn.x < 50) { acorn.x = 50; acorn.vx = Math.abs(acorn.vx); }
@@ -2652,7 +2668,7 @@ export default function EggBeach() {
 
       // L3: acorns
       if (gs.level === 3) {
-        gs.acorns.forEach(a => { const ax = a.x - gs.cameraX; if (ax > -20 && ax < CANVAS_W + 20) drawAcorn(ctx, ax, a.y); });
+        gs.acorns.forEach(a => { if (a.wait > 0) return; const ax = a.x - gs.cameraX; if (ax > -20 && ax < CANVAS_W + 20) drawAcorn(ctx, ax, a.y); });
       }
 
       // L4: lava drops
