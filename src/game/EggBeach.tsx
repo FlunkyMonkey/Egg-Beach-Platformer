@@ -143,6 +143,8 @@ interface GameStateData {
   bgScrollX: number;
   storyTimer: number;
   introTime: number;
+  selectedLevel: number;
+  selectCooldown: number;
   winAnimTime: number;
   lolaIdleFrame: number;
   lolaIdleTime: number;
@@ -1750,7 +1752,7 @@ function drawIntro(ctx: CanvasRenderingContext2D, t: number, frame: number) {
   ctx.fillText("press any key to skip", CANVAS_W / 2, CANVAS_H - 12);
 }
 
-function drawStartScreen(ctx: CanvasRenderingContext2D, lolaFrame: number, worldTime: number) {
+function drawStartScreen(ctx: CanvasRenderingContext2D, lolaFrame: number, worldTime: number, selectedLevel: number) {
   // Her title card is the whole point of this screen, so it is shown as the
   // artwork it is — full size, full opacity, centred. The previous version faded
   // it to a watermark and printed a generated "The Egg Beach" over the top, which
@@ -1789,14 +1791,47 @@ function drawStartScreen(ctx: CanvasRenderingContext2D, lolaFrame: number, world
     ctx.fillText("The Egg Beach", CANVAS_W / 2, 150);
   }
 
-  const alpha = 0.55 + Math.sin(worldTime * 3) * 0.45;
+  // Level picker. Every level is open — this is a game for one child who already
+  // knows all four places, so gating them behind progress would only get in the way.
   ctx.textAlign = "center";
+  const chipW = 96, gap = 10;
+  const totalW = LEVEL_NAMES.length * chipW + (LEVEL_NAMES.length - 1) * gap;
+  const startX = CANVAS_W / 2 - totalW / 2;
+  const chipY = CANVAS_H - 68;
+
+  LEVEL_NAMES.forEach((name, i) => {
+    const on = selectedLevel === i + 1;
+    const x = startX + i * (chipW + gap);
+    ctx.save();
+    if (on) {
+      ctx.shadowColor = "rgba(255,210,80,0.85)";
+      ctx.shadowBlur = 14;
+    }
+    ctx.fillStyle = on ? "rgba(255,205,70,0.95)" : "rgba(0,0,0,0.45)";
+    ctx.beginPath();
+    ctx.roundRect(x, chipY, chipW, 34, 9);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.strokeStyle = on ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.35)";
+    ctx.lineWidth = on ? 2.5 : 1.5;
+    ctx.beginPath();
+    ctx.roundRect(x, chipY, chipW, 34, 9);
+    ctx.stroke();
+
+    ctx.fillStyle = on ? "#3a2600" : "rgba(255,255,255,0.8)";
+    ctx.font = on ? "bold 14px monospace" : "13px monospace";
+    ctx.fillText(`${i + 1}. ${name}`, x + chipW / 2, chipY + 22);
+  });
+
+  const alpha = 0.55 + Math.sin(worldTime * 3) * 0.45;
   ctx.fillStyle = `rgba(255,255,255,${alpha})`;
   ctx.strokeStyle = "rgba(0,0,0,0.55)";
   ctx.lineWidth = 4;
-  ctx.font = "bold 20px monospace";
-  ctx.strokeText("Press ENTER or Tap to Start", CANVAS_W / 2, CANVAS_H - 16);
-  ctx.fillText("Press ENTER or Tap to Start", CANVAS_W / 2, CANVAS_H - 16);
+  ctx.font = "bold 15px monospace";
+  const hint = "◀ ▶ pick a level    ENTER or tap to start";
+  ctx.strokeText(hint, CANVAS_W / 2, CANVAS_H - 16);
+  ctx.fillText(hint, CANVAS_W / 2, CANVAS_H - 16);
 }
 
 // =====================================================================
@@ -2069,12 +2104,13 @@ export default function EggBeach() {
       clouds: [], acorns: [], lavaDrops: [], lavaDropNextId: 0, lavaSpawnTimer: 0,
       tide: BASE_GROUND + 40, lavaFloor: BASE_GROUND + 120, currentPhase: 0,
       hurtFlash: 0, shake: 0, hurtHearts: [], eggBanner: null,
-      bgScrollX: 0, storyTimer: 0, introTime: 0, winAnimTime: 0, lolaIdleFrame: 0, lolaIdleTime: 0,
+      bgScrollX: 0, storyTimer: 0, introTime: 0, selectedLevel: 1, selectCooldown: 0, winAnimTime: 0, lolaIdleFrame: 0, lolaIdleTime: 0,
     };
   }
 
   const startGame = useCallback(() => {
     const gs = gsRef.current!;
+    gs.level = gs.selectedLevel;
     gs.state = "HOW_TO_PLAY";
   }, []);
 
@@ -2157,6 +2193,18 @@ export default function EggBeach() {
     if (damageCooldownRef.current > 0) damageCooldownRef.current -= dt;
 
     // ============ UPDATE ============
+    if (gs.state === "START") {
+      gs.selectCooldown = Math.max(0, gs.selectCooldown - dt);
+      const t = touchRef.current;
+      if (gs.selectCooldown <= 0 && (t.left || t.right)) {
+        gs.selectedLevel = t.left
+          ? (gs.selectedLevel > 1 ? gs.selectedLevel - 1 : MAX_LEVELS)
+          : (gs.selectedLevel < MAX_LEVELS ? gs.selectedLevel + 1 : 1);
+        gs.selectCooldown = 22;
+        Sfx.playJump();
+      }
+    }
+
     if (gs.state === "INTRO") {
       const was = gs.introTime;
       gs.introTime += dt / 60;
@@ -2564,9 +2612,11 @@ export default function EggBeach() {
         // Spawn new drops
         gs.lavaSpawnTimer -= dt;
         if (gs.lavaSpawnTimer <= 0) {
-          gs.lavaSpawnTimer = 18 + Math.random() * 22;
+          // Was one every 0.3-0.7s, which on top of the rising lava floor made the
+          // level a wall of falling rock rather than a climb.
+          gs.lavaSpawnTimer = 75 + Math.random() * 85;
           const spawnX = gs.cameraX + 60 + Math.random() * (CANVAS_W - 120);
-          gs.lavaDrops.push({ id: gs.lavaDropNextId++, x: spawnX, y: -20, vy: 3 + Math.random() * 2.5 });
+          gs.lavaDrops.push({ id: gs.lavaDropNextId++, x: spawnX, y: -20, vy: 1.7 + Math.random() * 1.2 });
         }
         // Update drops
         gs.lavaDrops = gs.lavaDrops.filter(ld => {
@@ -2601,7 +2651,7 @@ export default function EggBeach() {
     if (gs.state === "INTRO") {
       drawIntro(ctx, gs.introTime, gs.lolaIdleFrame + worldTime * 6);
     } else if (gs.state === "START") {
-      drawStartScreen(ctx, gs.lolaIdleFrame, worldTime);
+      drawStartScreen(ctx, gs.lolaIdleFrame, worldTime, gs.selectedLevel);
     } else if (gs.state === "HOW_TO_PLAY") {
       drawHowToPlay(ctx);
     } else if (gs.state === "STORY") {
@@ -2747,6 +2797,19 @@ export default function EggBeach() {
       Sfx.unlockAudio();
       if (k === "m" || k === "M") { Sfx.toggleMute(); return; }
       if (gs.state === "INTRO") { gs.state = "START"; return; }
+      if (gs.state === "START") {
+        if (k === "ArrowLeft" || k === "a" || k === "A") {
+          gs.selectedLevel = gs.selectedLevel > 1 ? gs.selectedLevel - 1 : MAX_LEVELS;
+          Sfx.playJump();
+          return;
+        }
+        if (k === "ArrowRight" || k === "d" || k === "D") {
+          gs.selectedLevel = gs.selectedLevel < MAX_LEVELS ? gs.selectedLevel + 1 : 1;
+          Sfx.playJump();
+          return;
+        }
+        if (k >= "1" && k <= String(MAX_LEVELS)) { gs.selectedLevel = Number(k); Sfx.playJump(); return; }
+      }
       if (k === "Enter" || k === " ") {
         if (gs.state === "START") startGame();
         else if (gs.state === "HOW_TO_PLAY") { gs.state = "STORY"; gs.storyTimer = 0; }
@@ -2885,6 +2948,7 @@ export default function EggBeach() {
     Sfx.unlockAudio();
     const gs = gsRef.current!;
     if (gs.state === "INTRO") { gs.state = "START"; return; }
+    // The ◀ ▶ pad is used to pick a level here, so only a tap on the artwork starts.
     if (gs.state === "START") startGame();
     else if (gs.state === "HOW_TO_PLAY") { gs.state = "STORY"; gs.storyTimer = 0; }
     else if (gs.state === "STORY") startLevel();
