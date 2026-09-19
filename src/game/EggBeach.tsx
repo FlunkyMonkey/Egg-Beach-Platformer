@@ -1767,12 +1767,23 @@ function drawStartScreen(ctx: CanvasRenderingContext2D, lolaFrame: number, world
   ctx.fillStyle = sky;
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
+  // A hello to the people this was made for, above the card.
+  ctx.textAlign = "center";
+  ctx.font = "bold 22px monospace";
+  ctx.lineWidth = 5;
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = "rgba(20,40,80,0.75)";
+  ctx.strokeText("Hi June, Quinn, and Lily", CANVAS_W / 2, 30);
+  ctx.fillStyle = "#ffd23f";
+  ctx.fillText("Hi June, Quinn, and Lily", CANVAS_W / 2, 30);
+
   if (_titleArt) {
-    const maxH = CANVAS_H * 0.82;
+    // Card sized to leave the greeting its own room rather than crowding under it.
+    const maxH = CANVAS_H * 0.72;
     const h = maxH;
     const w = h * (_titleArt.width / _titleArt.height);
     const x = CANVAS_W / 2 - w / 2;
-    const y = CANVAS_H * 0.06 + Math.sin(worldTime * 1.1) * 3;
+    const y = CANVAS_H * 0.11 + Math.sin(worldTime * 1.1) * 3;
 
     ctx.save();
     ctx.shadowColor = "rgba(0,0,0,0.45)";
